@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+
+  /* Brand */
+  --color-brand: #dc2626;
+  --color-brand-hover: #b91c1c;
+  --color-brand-soft: #fef2f2;
+
+  /* Surfaces & text */
+  --color-surface: #ffffff;
+  --color-canvas: #f6f7f9;
+  --color-ink: #111827;
+  --color-muted: #64748b;
+  --color-line: #e5e7eb;
+
+  /* Status (always paired with an icon or label) */
+  --color-success: #15803d;
+  --color-success-soft: #f0fdf4;
+  --color-danger: #b91c1c;
+  --color-danger-soft: #fef2f2;
+  --color-pending: #b45309;
+  --color-pending-soft: #fffbeb;
+  --color-info: #1d4ed8;
+  --color-info-soft: #eff6ff;
+
+  /* Optional tags */
+  --color-tag-purple: #6d28d9;
+  --color-tag-purple-soft: #f5f3ff;
+  --color-tag-teal: #0f766e;
+  --color-tag-teal-soft: #f0fdfa;
+  --color-tag-slate: #334155;
+  --color-tag-slate-soft: #f1f5f9;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-canvas text-ink antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: #fecaca;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+dialog::backdrop {
+  background: rgb(17 24 39 / 0.45);
+}
+
+/* FullCalendar theme (brand palette, readable focus). */
+.rp-calendar {
+  --fc-border-color: var(--color-line);
+  --fc-button-bg-color: #ffffff;
+  --fc-button-border-color: var(--color-line);
+  --fc-button-text-color: var(--color-ink);
+  --fc-button-hover-bg-color: var(--color-canvas);
+  --fc-button-hover-border-color: var(--color-line);
+  --fc-button-active-bg-color: var(--color-brand);
+  --fc-button-active-border-color: var(--color-brand);
+  --fc-today-bg-color: #fff7ed;
+  --fc-now-indicator-color: var(--color-brand);
+  --fc-page-bg-color: #ffffff;
+  --fc-neutral-bg-color: var(--color-canvas);
+  --fc-list-event-hover-bg-color: var(--color-canvas);
+}
+.rp-calendar .fc .fc-button-primary:not(:disabled).fc-button-active,
+.rp-calendar .fc .fc-button-primary:not(:disabled):active {
+  color: #ffffff;
+}
+.rp-calendar .fc .fc-button:focus-visible,
+.rp-calendar .fc a:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+.rp-calendar .fc .fc-toolbar-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+}

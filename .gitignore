@@ -1,0 +1,17 @@
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# Local environment — never commit real secrets
+.env
+.env.local
+.env.*.local
+
+# Local development mail sink output (contains one-time links)
+.dev-mail/
+
+npm-debug.log*
+.DS_Store
