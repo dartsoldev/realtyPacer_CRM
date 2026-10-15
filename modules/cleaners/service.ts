@@ -19,7 +19,8 @@ import { inviteUser } from "@/modules/users/service";
 export const cleanerInputSchema = z
   .object({
     name: z.string().trim().min(1, "Name is required").max(120),
-    phone: z.string().trim().max(40).default(""),
+    /** Required so the office can always reach the cleaner. Creating a cleaner never creates a sign-in. */
+    phone: z.string({ error: "Phone is required" }).trim().min(1, "Phone is required").max(40),
     phoneCountry: z.string().regex(/^[A-Z]{2}$/).default("CA"),
     email: z.union([z.literal(""), z.string().trim().email("Enter a valid email or leave it blank").max(254)]).default(""),
     serviceAreas: z.array(z.string().trim().min(1).max(60)).max(20).default([]),

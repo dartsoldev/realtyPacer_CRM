@@ -7,7 +7,7 @@
 | **Superadmin** | Everything, including protected organization settings (name, timezone, currency, tax), and managing admins/superadmins. The last active superadmin can't be demoted or suspended. |
 | **Admin** | All operational work (customers, services, bookings, cleaners, calendar, prices, payments, refunds, billing, reports/exports, shared views, custom fields, loyalty, calls incl. browser calling, booking emails, imports, files) plus inviting/managing staff and cleaners, organization settings and System status. |
 | **Staff** | By default: view customers, services, bookings and calendar, add notes, log calls, view files. Everything else is granted per person in Users (e.g. “Record payments”, “View reports”, “Import customers”). |
-| **Cleaner** | Only their own assigned jobs: customer name/phone, job address with map link and access notes, services, instructions, before/after photos; start and complete jobs. Never sees the customer directory, office notes, prices, payments, reports or other cleaners' jobs. |
+| **Cleaner** | No leads, integrations, customer filter or financial reports. Only their own assigned jobs: customer name/phone, job address with map link and access notes, services, instructions, before/after photos; start and complete jobs. Never sees the customer directory, office notes, prices, payments, reports or other cleaners' jobs. |
 
 Permissions are checked on the server for every page and API call; hiding a button is never the only protection.
 
@@ -22,6 +22,21 @@ Permissions are checked on the server for every page and API call; hiding a butt
 7. **Charge and get paid** — Booking → Billing: optional discount, **Finalize charges** (creates the amount owed; tax only if configured). **Record payment** for money received by cash, e-Transfer, cheque or an external card terminal — RealtyPacer never charges cards. Unapplied money stays as credit; apply it later from the receipt.
 8. **Corrections** — credits/extra charges are adjustments with a reason; refunds are recorded after the money was returned; a mistaken receipt is reversed (kept in history).
 9. **Review** — Customer → Finance (lifetime totals with their formulas), Payments, and Reports.
+
+## Where to find things (October 2026 refinement)
+
+| Task | Where |
+|---|---|
+| See everything about one customer | **Customers → (name)**. Top: Call button, phone, email, address with map link and **Edit address**. Overview: completed bookings vs. completed services, service days, upcoming, total actually paid, points balance with **Adjust points**, upcoming bookings, notes and custom details (**Edit**). **Service history** tab: Date · Service · Service address · Amount paid · Cleaner · Status, one row per service. |
+| Who had which service where | **Customer filter** (main menu, also on the dashboard). **Add filter** (e.g. Service city is Mississauga, then Service is Sofa cleaning); separate filters must all match, several values in one filter mean "any of". Cards above the table total the whole result (customers, bookings, services, paid toward the matching services), not just the visible page. **Select columns** adds phone, email, current customer city, tags, points or custom fields. Only completed jobs count unless you add a Booking status filter. |
+| Custom fields | **Administration → Custom fields**: Text, Number, Date, Dropdown, Checkbox (and a few more). Renaming keeps the data. Points and money totals are calculated by the system and can't be custom fields. |
+| Book a job | **New booking**: type a customer's name or phone; **Create new customer** keeps what you already entered. Type a cleaner's name to assign; with nobody chosen the job is clearly marked **Unassigned**. If Google Calendar is connected, busy times there are shown as a warning. |
+| Calendar | Events show customer, service, city, time, cleaner and status. Opening a booking shows **← Back to calendar** that returns to the same day and view; from the booking you can open the customer and each cleaner. |
+| Calling | **Call** opens your phone's dialer (or browser calling when configured); **Copy** copies the number. Opening the dialer is not recorded as a completed call — use **Log call** afterwards. |
+| Leads | **Leads**: General / service and Real estate tabs, **Add lead**, **Import CSV**, status, assignment, notes, **Convert to customer** (checks existing customers first) and **Book a service**. See docs/LEAD_SOURCES.md. |
+| Integrations | **Administration → Integrations**: Google Calendar (outbound only) and website lead forms. See docs/GOOGLE_CALENDAR.md and docs/LEAD_SOURCES.md. |
+
+Cleaners need a name and phone number (email optional) and get no sign-in unless invited.
 
 ## Reports
 

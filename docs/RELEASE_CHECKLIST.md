@@ -37,6 +37,23 @@ Legend — **Implemented**: code exists and is wired into screens/APIs. **Verifi
 | Deployment configuration | `Dockerfile`, `docker-compose.yml`, `docs/DEPLOYMENT.md` | Yes | Build + standalone server run (E); **Docker image not built here (no Docker on this machine)** | Hosting, DNS/TLS, secrets |
 | Backups and restore | `docs/OPERATIONS.md` | Documented | **Not tested** (no backup-enabled cluster) | Atlas Cloud Backup (M10+) / bucket versioning |
 
+
+### October 2026 refinement
+
+| Requirement | Screen / API | Implemented | Verified | Remaining dependency |
+|---|---|---|---|---|
+| Customer profile as the central screen (Call, editable address + map, bookings vs services, paid per service, upcoming, notes, custom fields, points) | `/dashboard/customers/[id]`, `GET /api/v1/customers/:id/services`, `PATCH /api/v1/customers/:id/custom-fields` | Yes | U (paid per line, address edit keeps job snapshots, money hidden without access), E (page renders) | — |
+| Excel-style customer & service filter with full-result totals | `/dashboard/customer-filter`, dashboard shortcut, `POST /api/v1/reports/customer-services` | Yes | U (Mississauga AND Sofa: 2 customers, $180 paid, carpet/Toronto/unpaid excluded; paging keeps totals; any-of; date; name; custom field column+filter), E | — |
+| Owner-managed custom fields (Text, Number, Date, Dropdown, Checkbox) | `/dashboard/custom-fields` | Yes | U (rename keeps data; points/money labels refused) | — |
+| Booking: customer + cleaner autocomplete, visible Unassigned | Booking form (`CleanerPicker`) | Yes | U (lookup, assignable cleaners, unassigned list) | — |
+| Connected calendar, back-to-calendar, tomorrow at a glance | `/dashboard/calendar?date=&view=`, booking `?from=calendar`, dashboard Today/Tomorrow | Yes | U (tomorrow's jobs carry customer, service, city, cleaner, status), E | — |
+| Cleaner requires name + phone, email optional, no automatic login | `/dashboard/cleaners` | Yes | U | — |
+| Google Calendar (outbound) | Administration → Integrations, `/api/v1/integrations/google/*`, worker | Yes | U with mocked Google API (create, update, cancel, 409, backoff, manual retry, invalid_grant, encryption, single-use state, busy times); E ("Not connected") | Google Cloud OAuth client + 3 env vars — **no real Google account connected** (docs/GOOGLE_CALENDAR.md) |
+| Leads (General/service and Real estate), manual + CSV, Convert to customer | `/dashboard/leads`, `/api/v1/leads*` | Yes | U (conversion retry/concurrency creates one customer, history kept), E | — |
+| Website form intake | `POST /api/v1/intake/leads/:sourceId`, Integrations → Website lead forms | Yes | U (both categories, mapping, retries, bad key, paused, 422, 415, rate limit, logs without secrets), E (real HTTP, no cookies) | Client's form platform details — **no live website lead received** (docs/LEAD_SOURCES.md) |
+| Focused dashboard and navigation | `/dashboard`, main nav / More / Administration | Yes | E (renders) | — |
+| Permissions and organization isolation for the above | permission matrix | Yes | U, E (cleaner refused leads, sources, integrations, filter) | — |
+
 ## Go-live gates (outside the code)
 
 1. MongoDB replica set with backups enabled; app user restricted to the database.

@@ -7,6 +7,7 @@ import { connectDb } from "@/lib/db/connect";
 import { withTransaction } from "@/lib/db/transaction";
 import { notifyCleaners } from "@/modules/notifications/service";
 import { autoBookingEmail } from "./emails";
+import { queueCalendarSync } from "@/modules/integrations/google-calendar";
 import { Booking, type BookingDoc } from "@/lib/db/models/booking";
 import { Cleaner } from "@/lib/db/models/cleaner";
 import { Customer } from "@/lib/db/models/customer";
@@ -602,7 +603,10 @@ export async function createBooking(user: CurrentUser, raw: unknown): Promise<{ 
     throw err;
   }
   const fresh = await Booking.findById(bookingId).lean();
-  if (input.status === "SCHEDULED") await autoBookingEmail(orgId, String(bookingId), "booking_confirmation", "v0");
+  if (input.status === "SCHEDULED") {
+    await autoBookingEmail(orgId, String(bookingId), "booking_confirmation", "v0");
+    await queueCalendarSync(orgId, bookingId, "upsert");
+  }
   return { booking: (await shapeBookings(viewer, [fresh as BookingDoc]))[0]!, created: true };
 }
 
@@ -737,6 +741,7 @@ export async function updateBooking(user: CurrentUser, id: string, raw: unknown)
     }
   });
   if (emailChange) await autoBookingEmail(orgId, id, "booking_changed", emailChange);
+  await queueCalendarSync(orgId, id, "upsert");
   return getBooking(user, id);
 }
 
@@ -769,6 +774,7 @@ export async function changeBookingAddress(user: CurrentUser, id: string, raw: u
     await recordAudit({ organizationId: orgId, actorId: user.id, action: "booking.address_changed", entityType: "booking", entityId: b._id, metadata: { reference: b.reference } });
   });
   await autoBookingEmail(orgId, id, "booking_changed", `addr-v${input.expectedVersion + 1}`);
+  await queueCalendarSync(orgId, id, "upsert");
   return getBooking(user, id);
 }
 
@@ -814,6 +820,7 @@ export async function transitionBooking(user: CurrentUser, id: string, raw: unkn
   });
   // Cancelling never deletes or refunds payments; they stay allocated until refunded explicitly.
   if (input.action === "cancel") await autoBookingEmail(orgId, id, "booking_cancelled", `v${input.expectedVersion + 1}`);
+  await queueCalendarSync(orgId, id, input.action === "cancel" ? "delete" : "upsert");
   return getBooking(user, id);
 }
 
@@ -897,6 +904,8 @@ export type OperationsSummary = {
   completed: { from: string; to: string; bookings: number; serviceItems: number; uniqueCustomers: number };
   upcoming: BookingDTO[];
   todayJobs: BookingDTO[];
+  tomorrowJobs: BookingDTO[];
+  unassignedJobs: BookingDTO[];
 };
 
 export async function operationsSummary(user: CurrentUser, range: { from?: string; to?: string }, now = new Date()): Promise<OperationsSummary> {
@@ -916,7 +925,7 @@ export async function operationsSummary(user: CurrentUser, range: { from?: strin
   if ((completedR.end.getTime() - completedR.start.getTime()) / 86_400_000 > 367) throw Errors.validation("Choose a range of at most one year.");
   const notCancelled = { $ne: "CANCELLED" as const };
 
-  const [todayCount, tomorrowCount, unassignedUpcoming, inProgress, completedAgg, upcomingRows, todayRows] = await Promise.all([
+  const [todayCount, tomorrowCount, unassignedUpcoming, inProgress, completedAgg, upcomingRows, todayRows, tomorrowRows, unassignedRows] = await Promise.all([
     Booking.countDocuments({ organizationId: orgId, status: notCancelled, scheduledStartAt: { $gte: todayR.start, $lt: todayR.end } }),
     Booking.countDocuments({ organizationId: orgId, status: notCancelled, scheduledStartAt: { $gte: tomorrowR.start, $lt: tomorrowR.end } }),
     Booking.countDocuments({ organizationId: orgId, status: "SCHEDULED", scheduledStartAt: { $gte: now }, assignedCleanerIds: { $size: 0 } }),
@@ -928,6 +937,8 @@ export async function operationsSummary(user: CurrentUser, range: { from?: strin
     ]),
     Booking.find({ organizationId: orgId, status: "SCHEDULED", scheduledStartAt: { $gte: now } }).sort({ scheduledStartAt: 1, _id: 1 }).limit(8).lean(),
     Booking.find({ organizationId: orgId, status: notCancelled, scheduledStartAt: { $gte: todayR.start, $lt: todayR.end } }).sort({ scheduledStartAt: 1, _id: 1 }).limit(20).lean(),
+    Booking.find({ organizationId: orgId, status: notCancelled, scheduledStartAt: { $gte: tomorrowR.start, $lt: tomorrowR.end } }).sort({ scheduledStartAt: 1, _id: 1 }).limit(20).lean(),
+    Booking.find({ organizationId: orgId, status: "SCHEDULED", scheduledStartAt: { $gte: now }, assignedCleanerIds: { $size: 0 } }).sort({ scheduledStartAt: 1, _id: 1 }).limit(8).lean(),
   ]);
   const c = completedAgg[0];
   return {
@@ -941,6 +952,8 @@ export async function operationsSummary(user: CurrentUser, range: { from?: strin
     completed: { from, to, bookings: c?.bookings ?? 0, serviceItems: c?.items ?? 0, uniqueCustomers: c?.customers ?? 0 },
     upcoming: await shapeBookings(viewer, upcomingRows as BookingDoc[]),
     todayJobs: await shapeBookings(viewer, todayRows as BookingDoc[]),
+    tomorrowJobs: await shapeBookings(viewer, tomorrowRows as BookingDoc[]),
+    unassignedJobs: await shapeBookings(viewer, unassignedRows as BookingDoc[]),
   };
 }
 

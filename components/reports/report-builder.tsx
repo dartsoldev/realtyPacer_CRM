@@ -48,7 +48,7 @@ type Props = {
   canShare: boolean;
 };
 
-function describeValue(field: FieldMeta | undefined, op: Operator, value: unknown, currency: string): string {
+export function describeValue(field: FieldMeta | undefined, op: Operator, value: unknown, currency: string): string {
   if (NO_VALUE_OPS.includes(op)) return "";
   const one = (v: unknown) => {
     if (field?.type === "money" && typeof v === "number") return formatCents(v, currency);
@@ -59,7 +59,7 @@ function describeValue(field: FieldMeta | undefined, op: Operator, value: unknow
 }
 
 /** Editor for one new condition: field → operator → typed value. */
-function ConditionEditor({ fields, currency, onAdd, onCancel }: { fields: FieldMeta[]; currency: string; onAdd: (c: Condition) => void; onCancel: () => void }) {
+export function ConditionEditor({ fields, currency, onAdd, onCancel }: { fields: FieldMeta[]; currency: string; onAdd: (c: Condition) => void; onCancel: () => void }) {
   const [fieldKey, setFieldKey] = useState(fields[0]?.key ?? "");
   const field = fields.find((f) => f.key === fieldKey);
   const [op, setOp] = useState<Operator>((field?.ops.includes("any_of") ? "any_of" : field?.ops[0]) ?? "eq");

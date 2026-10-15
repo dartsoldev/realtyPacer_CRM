@@ -12,6 +12,6 @@ const CalendarView = dynamic(() => import("./calendar-view"), {
   ),
 });
 
-export function CalendarShell(props: { timezone: string; cleaners: { id: string; name: string }[]; canCreate: boolean; initialDate?: string }) {
+export function CalendarShell(props: { timezone: string; cleaners: { id: string; name: string }[]; canCreate: boolean; initialDate?: string; initialView?: string }) {
   return <CalendarView {...props} />;
 }

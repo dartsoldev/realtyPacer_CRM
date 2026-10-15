@@ -32,8 +32,17 @@ import { formatBasisPoints } from "@/lib/domain/billing";
 
 export const metadata: Metadata = { title: "Booking" };
 
-export default async function BookingPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function BookingPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { id } = await params;
+  const sp = await searchParams;
+  // Opened from the calendar: offer a way back to the same date and view.
+  const calendarBack =
+    sp.from === "calendar"
+      ? `/dashboard/calendar?${new URLSearchParams({
+          ...(typeof sp.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(sp.date) ? { date: sp.date } : {}),
+          ...(typeof sp.view === "string" && ["dayGridMonth", "timeGridWeek", "timeGridDay", "listWeek"].includes(sp.view) ? { view: sp.view } : {}),
+        })}`
+      : null;
   const user = await requirePageUser(`/dashboard/bookings/${id}`);
   let b;
   try {
@@ -53,6 +62,13 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
 
   return (
     <>
+      {calendarBack ? (
+        <p className="mb-2">
+          <Link href={calendarBack} className="inline-flex min-h-9 items-center gap-1 text-sm font-medium text-brand underline-offset-4 hover:underline">
+            ← Back to calendar
+          </Link>
+        </p>
+      ) : null}
       <nav aria-label="Breadcrumb" className="mb-3 text-sm text-muted">
         {office ? (
           <Link href="/dashboard/bookings" className="underline-offset-4 hover:underline">Bookings</Link>

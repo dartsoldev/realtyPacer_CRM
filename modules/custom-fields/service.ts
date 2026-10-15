@@ -271,10 +271,25 @@ async function assertIndexBudget(orgId: Types.ObjectId, entityType: CustomFieldE
   if (n >= MAX_INDEXED_PER_ENTITY) throw Errors.validation(`At most ${MAX_INDEXED_PER_ENTITY} indexed fields per record type.`);
 }
 
+/**
+ * Points (ledger) and money are system fields with their own history; a
+ * manually editable custom field with the same meaning would conflict.
+ */
+function assertNotSystemField(label: string) {
+  const l = label.toLowerCase().replace(/[^a-z]/g, "");
+  if (["points", "pointsbalance", "loyaltypoints", "point", "loyaltybalance"].includes(l)) {
+    throw Errors.validation("Points are already tracked by the points ledger. Use “Adjust points” on the customer profile, and pick “Points balance” under Select columns in the customer filter.", { label: ["Use the built-in points balance"] });
+  }
+  if (["totalpaid", "amountpaid", "balance", "outstanding", "totalspent"].includes(l)) {
+    throw Errors.validation("Money totals are calculated from payments and can't be a manual field.", { label: ["Use the built-in totals"] });
+  }
+}
+
 export async function createDefinition(user: CurrentUser, raw: unknown) {
   if (!user.permissions.has("customFields:manage")) throw Errors.forbidden();
   const input = createDefinitionSchema.parse(raw);
   checkTypeRules(input.dataType, input);
+  assertNotSystemField(input.label);
   await connectDb();
   const orgId = new Types.ObjectId(user.organizationId);
   if ((await CustomFieldDefinition.countDocuments({ organizationId: orgId, entityType: input.entityType })) >= MAX_FIELDS_PER_ENTITY) throw Errors.validation(`At most ${MAX_FIELDS_PER_ENTITY} fields per record type.`);
@@ -308,6 +323,7 @@ export async function createDefinition(user: CurrentUser, raw: unknown) {
 export async function updateDefinition(user: CurrentUser, id: string, raw: unknown) {
   if (!user.permissions.has("customFields:manage")) throw Errors.forbidden();
   const input = updateDefinitionSchema.parse(raw);
+  if (input.label) assertNotSystemField(input.label);
   if (!OBJECT_ID_RE.test(id)) throw Errors.notFound("Custom field");
   await connectDb();
   const orgId = new Types.ObjectId(user.organizationId);

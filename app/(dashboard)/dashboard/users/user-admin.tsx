@@ -36,6 +36,8 @@ const GRANT_LABELS: Partial<Record<Permission, string>> = {
   "customers:import": "Import customers from CSV",
   "attachments:write": "Upload photos and documents",
   "attachments:delete": "Remove any photo or document",
+  "leads:read": "View leads",
+  "leads:write": "Add, assign and convert leads",
 };
 
 function Modal({ title, open, onClose, children }: { title: string; open: boolean; onClose: () => void; children: React.ReactNode }) {

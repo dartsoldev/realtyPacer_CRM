@@ -23,6 +23,12 @@ export { Notification } from "./notification";
 export { WorkerHeartbeat } from "./worker-heartbeat";
 export { Attachment } from "./attachment";
 export { ImportJob } from "./import-job";
+export { GoogleCalendarConnection } from "./google-calendar";
+export { OAuthState } from "./google-calendar";
+export { CalendarSync } from "./google-calendar";
+export { Lead } from "./lead";
+export { LeadSource } from "./lead";
+export { LeadSubmissionLog } from "./lead";
 
 import { Organization } from "./organization";
 import { User } from "./user";
@@ -47,6 +53,12 @@ import { Notification } from "./notification";
 import { WorkerHeartbeat } from "./worker-heartbeat";
 import { Attachment } from "./attachment";
 import { ImportJob } from "./import-job";
+import { GoogleCalendarConnection } from "./google-calendar";
+import { OAuthState } from "./google-calendar";
+import { CalendarSync } from "./google-calendar";
+import { Lead } from "./lead";
+import { LeadSource } from "./lead";
+import { LeadSubmissionLog } from "./lead";
 
 export const ALL_MODELS = [
   Organization,
@@ -72,4 +84,10 @@ export const ALL_MODELS = [
   WorkerHeartbeat,
   Attachment,
   ImportJob,
+  GoogleCalendarConnection,
+  OAuthState,
+  CalendarSync,
+  Lead,
+  LeadSource,
+  LeadSubmissionLog,
 ] as const;

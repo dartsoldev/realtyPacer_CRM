@@ -5,9 +5,10 @@ import { Booking } from "@/lib/db/models/booking";
 import { Cleaner } from "@/lib/db/models/cleaner";
 import { Customer } from "@/lib/db/models/customer";
 import { Service } from "@/lib/db/models/service";
-import { BILLING_STATES, CONTACT_SOURCE_LABELS, CONTACT_SOURCES, CUSTOMER_TYPE_LABELS, CUSTOMER_TYPES, FILTERABLE_CUSTOM_FIELD_TYPES, PAYMENT_METHOD_LABELS, PAYMENT_METHODS, type CustomFieldType } from "@/lib/domain/constants";
+import { ServiceAddress } from "@/lib/db/models/service-address";
+import { BILLING_STATES, BOOKING_STATUS_LABELS, BOOKING_STATUSES, CONTACT_SOURCE_LABELS, CONTACT_SOURCES, CUSTOMER_TYPE_LABELS, CUSTOMER_TYPES, FILTERABLE_CUSTOM_FIELD_TYPES, PAYMENT_METHOD_LABELS, PAYMENT_METHODS, type CustomFieldType } from "@/lib/domain/constants";
 import { escapeRegex, normalizeCity, OBJECT_ID_RE } from "@/lib/domain/normalize";
-import { isDateKey } from "@/lib/domain/zoned-time";
+import { isDateKey, localDaysRange } from "@/lib/domain/zoned-time";
 import { AppError, Errors } from "@/lib/http/errors";
 import type { Permission } from "@/lib/permissions/matrix";
 import { customFieldDefsFor, type CustomFieldDef } from "@/modules/custom-fields/service";
@@ -22,13 +23,14 @@ import { MAX_VALUES, OPS_BY_TYPE, type Condition, type FieldMeta, type FieldType
  *  movement – on the unwound cash movement (attributed city/service)
  */
 type Level = "booking" | "line" | "customer" | "receipt" | "movement";
-type ValueKind = "string" | "objectId" | "city" | "cents" | "number" | "dateKey";
+type ValueKind = "string" | "objectId" | "city" | "cents" | "number" | "dateKey" | "localDate";
 
 export type FieldSpec = FieldMeta & { level: Level; path: string; valueKind: ValueKind; requires: Permission[]; enumValues?: readonly string[] };
 
-export type FilterTarget = ReportMode | "customer_list";
+/** "service_filter": the simple customer/service filter screen. */
+export type FilterTarget = ReportMode | "customer_list" | "service_filter";
 
-const SERVICE_MODES: FilterTarget[] = ["service", "customers"];
+const SERVICE_MODES: FilterTarget[] = ["service", "customers", "service_filter"];
 
 function core(target: FilterTarget): FieldSpec[] {
   const fields: FieldSpec[] = [];
@@ -43,11 +45,15 @@ function core(target: FilterTarget): FieldSpec[] {
   add({ key: "service", label: "Service", type: "enum", ops: ["eq", "any_of"], group: "Service", level: "movement", path: "serviceId", valueKind: "objectId", requires: [] }, ["cash"]);
   add({ key: "cleaner", label: "Assigned cleaner", type: "enum", ops: ["eq", "any_of"], group: "Booking", level: "booking", path: "assignedCleanerIds", valueKind: "objectId", requires: ["cleaners:read"], hint: "Bookings are counted once even with several cleaners" }, SERVICE_MODES);
   add({ key: "billingState", label: "Billing state", type: "enum", ops: ["eq", "any_of"], group: "Booking", level: "booking", path: "billingState", valueKind: "string", requires: ["pricing:read"], enumValues: BILLING_STATES, options: [{ value: "DRAFT", label: "Draft (estimate)" }, { value: "FINALIZED", label: "Finalized (owed)" }] }, SERVICE_MODES);
+  // Simple filter screen only: service date (organization timezone), booking status, customer's current address city.
+  add({ key: "serviceDate", label: "Service date", type: "date", ops: ["on", "before", "after", "between"], group: "Service", level: "booking", path: "scheduledStartAt", valueKind: "localDate", requires: [], hint: "Date of the job in your organization's timezone" }, ["service_filter"]);
+  add({ key: "status", label: "Booking status", type: "enum", ops: ["eq", "any_of"], group: "Booking", level: "booking", path: "status", valueKind: "string", requires: [], enumValues: BOOKING_STATUSES, options: BOOKING_STATUSES.map((st) => ({ value: st, label: BOOKING_STATUS_LABELS[st] })), hint: "Without this filter only completed jobs are included" }, ["service_filter"]);
+  add({ key: "customerCity", label: "Customer address city (current)", type: "enum", ops: ["eq", "any_of"], group: "Customer", level: "customer", path: "cust.addressCities", valueKind: "city", requires: ["customers:read"], hint: "The customer's current addresses — not where past jobs were done" }, ["service_filter"]);
   add({ key: "lineOutstanding", label: "Outstanding on service line", type: "money", ops: OPS_BY_TYPE.money, group: "Service", level: "line", path: "lineBalanceCents", valueKind: "cents", requires: ["financials:read"] }, SERVICE_MODES);
   add({ key: "method", label: "Payment method", type: "enum", ops: ["eq", "any_of"], group: "Payment", level: "receipt", path: "method", valueKind: "string", requires: ["financials:read"], enumValues: PAYMENT_METHODS, options: PAYMENT_METHODS.map((m) => ({ value: m, label: PAYMENT_METHOD_LABELS[m] })) }, ["cash"]);
   // Customer
   const custPath = (p: string) => (target === "customer_list" ? p : `cust.${p}`);
-  const allTargets: FilterTarget[] = ["service", "customers", "cash", "customer_list"];
+  const allTargets: FilterTarget[] = ["service", "customers", "cash", "customer_list", "service_filter"];
   add({ key: "customerName", label: "Customer name", type: "text", ops: ["contains", "equals"], group: "Customer", level: "customer", path: custPath("searchName"), valueKind: "string", requires: ["customers:read"] }, allTargets);
   add({ key: "customerTags", label: "Customer tags", type: "tags", ops: OPS_BY_TYPE.tags, group: "Customer", level: "customer", path: custPath("tags"), valueKind: "string", requires: ["customers:read"] }, allTargets);
   add({ key: "customerType", label: "Customer type", type: "enum", ops: ["eq", "any_of"], group: "Customer", level: "customer", path: custPath("customerType"), valueKind: "string", requires: ["customers:read"], enumValues: CUSTOMER_TYPES, options: CUSTOMER_TYPES.map((t) => ({ value: t, label: CUSTOMER_TYPE_LABELS[t] })) }, allTargets);
@@ -104,18 +110,26 @@ export async function fieldRegistry(user: CurrentUser, target: FilterTarget): Pr
 export async function fieldsWithOptions(user: CurrentUser, target: FilterTarget): Promise<FieldMeta[]> {
   const specs = await fieldRegistry(user, target);
   const orgId = new Types.ObjectId(user.organizationId);
-  const [services, cleaners, cities, tags] = await Promise.all([
+  const [services, cleaners, cities, tags, customerCities] = await Promise.all([
     Service.find({ organizationId: orgId }).select("name").sort({ searchName: 1 }).limit(300).lean(),
     user.permissions.has("cleaners:read") ? Cleaner.find({ organizationId: orgId }).select("name").sort({ searchName: 1 }).limit(300).lean() : [],
     target === "customer_list" ? Customer.distinct("primaryCity", { organizationId: orgId }) : Booking.distinct("addressSnapshot.city", { organizationId: orgId }),
     user.permissions.has("customers:read") ? Customer.distinct("tags", { organizationId: orgId }) : [],
+    target === "service_filter" && user.permissions.has("customers:read") ? ServiceAddress.distinct("city", { organizationId: orgId, archivedAt: null }) : [],
   ]);
+  // One option per city regardless of capitalisation/spacing (matching is normalized server-side).
+  const cityOptions = (list: unknown[]) => {
+    const seen = new Map<string, string>();
+    for (const c of list) if (typeof c === "string" && c.trim() && !seen.has(normalizeCity(c))) seen.set(normalizeCity(c), c.trim());
+    return [...seen.values()].sort((a, b) => a.localeCompare(b)).slice(0, 300).map((c) => ({ value: c, label: c }));
+  };
   return specs.map((s) => {
     const { level: _l, path: _p, valueKind: _v, requires: _r, enumValues: _e, ...meta } = s;
     void _l; void _p; void _v; void _r; void _e;
     if (s.key === "service") return { ...meta, options: services.map((x) => ({ value: String(x._id), label: x.name })) };
     if (s.key === "cleaner") return { ...meta, options: cleaners.map((x) => ({ value: String(x._id), label: x.name })) };
-    if (s.key === "city") return { ...meta, options: (cities as (string | null)[]).filter(Boolean).slice(0, 300).sort().map((c) => ({ value: c!, label: c! })) };
+    if (s.key === "city") return { ...meta, options: cityOptions(cities as unknown[]) };
+    if (s.key === "customerCity") return { ...meta, options: cityOptions(customerCities as unknown[]) };
     if (s.key === "customerTags") return { ...meta, options: (tags as string[]).slice(0, 300).sort().map((t) => ({ value: t, label: t })) };
     return meta;
   });
@@ -166,9 +180,30 @@ function pair(spec: FieldSpec, v: unknown): [unknown, unknown] {
 }
 
 /** One condition → a match fragment on the field's path (never a client-supplied operator). */
-export function compileCondition(spec: FieldSpec, op: Operator, value: unknown): Record<string, unknown> {
+export function compileCondition(spec: FieldSpec, op: Operator, value: unknown, tz = "America/Toronto"): Record<string, unknown> {
   if (!spec.ops.includes(op)) bad(`“${op}” can't be used with ${spec.label}.`);
   const p = spec.path;
+  if (spec.valueKind === "localDate") {
+    // Local calendar days in the organization's timezone → UTC instants (DST-safe).
+    const day = (v: unknown) => {
+      if (!isDateKey(v)) bad(`${spec.label}: choose a valid date.`);
+      return localDaysRange(v as string, v as string, tz);
+    };
+    if (op === "on") {
+      const r = day(value);
+      return { [p]: { $gte: r.start, $lt: r.end } };
+    }
+    if (op === "before") return { [p]: { $lt: day(value).start } };
+    if (op === "after") return { [p]: { $gte: day(value).end } };
+    if (op === "between") {
+      if (!Array.isArray(value) || value.length !== 2) bad(`${spec.label}: enter a from and to date.`);
+      const [a, b] = value as unknown[];
+      if (!isDateKey(a) || !isDateKey(b) || a > b) bad(`${spec.label}: choose a valid date range.`);
+      const r = localDaysRange(a as string, b as string, tz);
+      return { [p]: { $gte: r.start, $lt: r.end } };
+    }
+    return bad("Unsupported operator.");
+  }
   switch (op) {
     case "contains":
       return { [p]: { $regex: escapeRegex(String(scalar(spec, value))), $options: "i" } };
@@ -212,7 +247,7 @@ export type CompiledFilters = Record<Level, Record<string, unknown>[]> & { warni
  * rejects unknown/unauthorized fields (API); lenient mode (saved views)
  * drops them with an explanation so an archived custom field doesn't break a view.
  */
-export function compileFilters(specs: FieldSpec[], conditions: Condition[], lenient = false): CompiledFilters {
+export function compileFilters(specs: FieldSpec[], conditions: Condition[], lenient = false, tz?: string): CompiledFilters {
   const byKey = new Map(specs.map((s) => [s.key, s]));
   const out: CompiledFilters = { booking: [], line: [], customer: [], receipt: [], movement: [], warnings: [], applied: [] };
   for (const c of conditions) {
@@ -228,7 +263,7 @@ export function compileFilters(specs: FieldSpec[], conditions: Condition[], leni
       throw Errors.validation(msg);
     }
     try {
-      out[spec.level].push(compileCondition(spec, c.op, c.value));
+      out[spec.level].push(compileCondition(spec, c.op, c.value, tz));
       out.applied.push({ field: spec.key, label: spec.label, op: c.op, value: c.value });
     } catch (err) {
       if (lenient && err instanceof AppError) {

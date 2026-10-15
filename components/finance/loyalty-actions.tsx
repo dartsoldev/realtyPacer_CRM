@@ -14,7 +14,7 @@ type Kind = "grant" | "redeem" | "correction";
 const KIND_LABELS: Record<Kind, string> = { grant: "Grant points", redeem: "Redeem points", correction: "Correction (+ or −)" };
 
 /** Points change only through ledger entries; the balance is never edited directly. */
-export function LoyaltyEntryButton({ customerId, balance }: { customerId: string; balance: number }) {
+export function LoyaltyEntryButton({ customerId, balance, compact }: { customerId: string; balance: number; compact?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<Kind>("grant");
@@ -38,8 +38,8 @@ export function LoyaltyEntryButton({ customerId, balance }: { customerId: string
   }
   return (
     <>
-      <Button variant="secondary" onClick={() => { setOpen(true); setPoints(""); setReason(""); setError(null); setRequestKey(newRequestKey()); }}>
-        <Gift className="size-4" aria-hidden /> Add points entry
+      <Button variant="secondary" size={compact ? "sm" : "md"} onClick={() => { setOpen(true); setPoints(""); setReason(""); setError(null); setRequestKey(newRequestKey()); }}>
+        <Gift className="size-4" aria-hidden /> Adjust points
       </Button>
       <Modal title="Loyalty points entry" open={open} onClose={() => setOpen(false)}>
         <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); void submit(); }}>

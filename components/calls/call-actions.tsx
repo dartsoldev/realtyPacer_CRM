@@ -4,7 +4,7 @@ import { Check, Copy, Headset, Mic, MicOff, NotebookPen, Phone, PhoneOff } from 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Alert } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Modal } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/field";
@@ -240,17 +240,26 @@ function BrowserCallDialog({ target, open, onClose }: { target: CallTarget; open
  * Call controls for a phone number: dialer link (opens the device's phone app),
  * copy, manual "Log call" and — when configured — a browser call.
  */
-export function CallActions({ e164, display, target, canLog, browserCalling, compact }: { e164: string | null; display?: string | null; target: CallTarget; canLog: boolean; browserCalling: boolean; compact?: boolean }) {
+export function CallActions({ e164, display, target, canLog, browserCalling, compact, prominent }: { e164: string | null; display?: string | null; target: CallTarget; canLog: boolean; browserCalling: boolean; compact?: boolean; prominent?: boolean }) {
   const [logOpen, setLogOpen] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
   if (!e164) return <span className="text-sm text-muted">No phone number</span>;
   const shown = display ?? e164;
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
-      <a href={telHref(e164)} className="inline-flex min-h-9 items-center gap-1.5 rounded-md font-medium text-brand underline-offset-4 hover:underline" aria-label={`Call ${shown} — opens your phone app`}>
-        <Phone className="size-4" aria-hidden />
-        {shown}
-      </a>
+      {prominent ? (
+        <>
+          <a href={telHref(e164)} className={buttonClasses("primary", "sm")} aria-label={`Call ${shown} — opens your phone app`}>
+            <Phone className="size-4" aria-hidden /> Call
+          </a>
+          <span className="px-1 font-medium tabular-nums">{shown}</span>
+        </>
+      ) : (
+        <a href={telHref(e164)} className="inline-flex min-h-9 items-center gap-1.5 rounded-md font-medium text-brand underline-offset-4 hover:underline" aria-label={`Call ${shown} — opens your phone app`}>
+          <Phone className="size-4" aria-hidden />
+          {shown}
+        </a>
+      )}
       <CopyNumber value={e164} display={shown} />
       {canLog ? (
         <button type="button" onClick={() => setLogOpen(true)} className="inline-flex min-h-9 items-center gap-1 rounded-md px-2 text-sm text-muted hover:bg-canvas hover:text-ink" aria-label={`Log a call with ${target.name}`}>

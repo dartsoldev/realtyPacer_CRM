@@ -67,6 +67,12 @@ export const PERMISSIONS = [
   "attachments:assigned",
   /** Operational diagnostics: outbox, background jobs, configuration status. */
   "system:diagnostics",
+  /** View leads (general/service and real estate). */
+  "leads:read",
+  /** Create, edit, assign and convert leads; import lead CSVs. */
+  "leads:write",
+  /** Connect/disconnect Google Calendar and manage lead intake sources (credentials stay server-side). */
+  "integrations:manage",
   // Administration
   "users:read",
   "users:invite",
@@ -111,6 +117,8 @@ const OPERATIONAL: Permission[] = [
   "attachments:read",
   "attachments:write",
   "attachments:delete",
+  "leads:read",
+  "leads:write",
 ];
 
 /** Permissions every STAFF user has without explicit grants. */
@@ -151,6 +159,8 @@ export const STAFF_GRANTABLE: Permission[] = [
   "customers:import",
   "attachments:write",
   "attachments:delete",
+  "leads:read",
+  "leads:write",
 ];
 
 const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
@@ -166,6 +176,7 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "organization:read",
     "organization:update",
     "system:diagnostics",
+    "integrations:manage",
   ],
   STAFF: STAFF_BASE,
   // Only their own assigned jobs; no customer directory, pricing or office notes.

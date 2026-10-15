@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/field";
 import { apiRequest } from "@/lib/client/api";
+import { GoogleBusyNote } from "./google-busy-note";
+import { CleanerPicker } from "./cleaner-picker";
 import { CustomFieldInputs, changedCustomFields, useCustomFieldDefs, type CustomFieldDraft } from "@/components/custom-fields/inputs";
 import { useDebounced, useIdempotencyKey, useUnsavedChangesWarning } from "@/lib/client/hooks";
 import { formatMinutes } from "@/lib/domain/duration";
@@ -457,6 +459,7 @@ export function BookingForm({
             )}
           </Field>
         </div>
+        {editable.has("schedule") && status === "SCHEDULED" && date ? <GoogleBusyNote date={date} startTime={startTime} durationMinutes={Number(duration) || 0} timeZone={options.timezone} /> : null}
         {ambiguous ? (
           <fieldset className="space-y-2 rounded-lg border border-pending/40 bg-pending-soft p-3 text-sm">
             <legend className="font-medium">This time happens twice (clocks go back). Which one?</legend>
@@ -563,25 +566,16 @@ export function BookingForm({
 
       <section className="space-y-3" aria-labelledby="bf-cleaners">
         <h2 id="bf-cleaners" className="text-base font-semibold">Assigned cleaners</h2>
-        <p className="text-sm text-muted">Optional. Leave empty to keep the job “Unassigned”. Overlapping jobs for the same cleaner are blocked.</p>
-        {cleanerChoices.length === 0 ? <p className="text-sm text-muted">No active cleaners.</p> : null}
-        <div className="grid gap-2 sm:grid-cols-2">
-          {cleanerChoices.map((c) => (
-            <label key={c.id} className="flex items-center gap-2 rounded-lg border border-line p-2.5 text-sm has-[:checked]:border-brand">
-              <input
-                type="checkbox"
-                className="size-4 accent-brand"
-                disabled={!editable.has("cleaners")}
-                checked={cleanerIds.includes(c.id)}
-                onChange={(e) => {
-                  setCleanerIds((ids) => (e.target.checked ? [...ids, c.id] : ids.filter((x) => x !== c.id)));
-                  touch();
-                }}
-              />
-              {c.name}
-            </label>
-          ))}
-        </div>
+        <p className="text-sm text-muted">Optional — leave empty to keep the job “Unassigned”. Overlapping jobs for the same cleaner are blocked when you save.</p>
+        <CleanerPicker
+          choices={cleanerChoices}
+          value={cleanerIds}
+          disabled={!editable.has("cleaners")}
+          onChange={(ids) => {
+            setCleanerIds(ids);
+            touch();
+          }}
+        />
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2" aria-label="Notes">

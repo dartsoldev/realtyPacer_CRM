@@ -161,6 +161,27 @@ export function getStorageEnv(): StorageEnv | null {
   return parsed.data;
 }
 
+const googleSchema = z.object({
+  GOOGLE_CLIENT_ID: z.string().regex(/\.apps\.googleusercontent\.com$/, "GOOGLE_CLIENT_ID must be an OAuth client ID (…apps.googleusercontent.com)"),
+  GOOGLE_CLIENT_SECRET: z.string().min(10, "GOOGLE_CLIENT_SECRET is required"),
+  TOKEN_ENCRYPTION_KEY: z
+    .string({ error: "TOKEN_ENCRYPTION_KEY is required" })
+    .refine((v) => Buffer.from(v, "base64").length === 32, "TOKEN_ENCRYPTION_KEY must be 32 random bytes, base64-encoded"),
+});
+export type GoogleEnv = z.infer<typeof googleSchema>;
+
+/** Google Calendar OAuth settings, or null when GOOGLE_CLIENT_ID is not set (integration shown as “Not configured”). */
+export function getGoogleEnv(): GoogleEnv | null {
+  if (!blankToUndefined(process.env.GOOGLE_CLIENT_ID)) return null;
+  const parsed = googleSchema.safeParse({
+    GOOGLE_CLIENT_ID: blankToUndefined(process.env.GOOGLE_CLIENT_ID),
+    GOOGLE_CLIENT_SECRET: blankToUndefined(process.env.GOOGLE_CLIENT_SECRET),
+    TOKEN_ENCRYPTION_KEY: blankToUndefined(process.env.TOKEN_ENCRYPTION_KEY),
+  });
+  if (!parsed.success) throw new ConfigError(issuesOf(parsed.error));
+  return parsed.data;
+}
+
 export type ConfigStatus = { ok: true } | { ok: false; issues: string[] };
 
 export function getConfigStatus(scope: "core" | "smtp" | "calling" | "storage"): ConfigStatus {

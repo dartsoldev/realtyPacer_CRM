@@ -14,6 +14,7 @@ export function NavLinks({ allowed, terminology, onNavigate, labels = {} }: { al
   const items = NAV_ITEMS.filter((i) => allowed.includes(i.href));
   const sections = [
     { key: "main", title: null, items: items.filter((i) => i.section === "main") },
+    { key: "more", title: "More", items: items.filter((i) => i.section === "more") },
     { key: "admin", title: "Administration", items: items.filter((i) => i.section === "admin") },
   ].filter((s) => s.items.length > 0);
 

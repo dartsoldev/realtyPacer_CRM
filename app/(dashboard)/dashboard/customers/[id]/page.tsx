@@ -31,7 +31,8 @@ import { formatDate, formatDateTime } from "@/lib/domain/time";
 import { todayKey } from "@/lib/domain/zoned-time";
 import { AppError } from "@/lib/http/errors";
 import { listAddresses } from "@/modules/customers/addresses";
-import { customerHistory, customerMetrics, getCustomer } from "@/modules/customers/service";
+import { customerMetrics, customerServiceLines, getCustomer, type ServiceLineRow } from "@/modules/customers/service";
+import { CustomFieldsEditor, EditAddressButton } from "@/components/customers/profile-actions";
 import { customFieldDefsFor } from "@/modules/custom-fields/service";
 import { openCharges } from "@/modules/finance/payments";
 import { customerFinanceHistory, customerFinancialSummary } from "@/modules/finance/summary";
@@ -43,7 +44,7 @@ export const metadata: Metadata = { title: "Customer" };
 const TABS = [
   { key: "overview", label: "Overview" },
   { key: "addresses", label: "Service addresses" },
-  { key: "history", label: "Bookings & service history" },
+  { key: "history", label: "Service history" },
   { key: "activity", label: "Notes & activity" },
   { key: "finance", label: "Finance" },
   { key: "loyalty", label: "Loyalty points" },
@@ -75,7 +76,10 @@ export default async function CustomerProfilePage({ params, searchParams }: { pa
     canBookings ? customerMetrics(new Types.ObjectId(user.organizationId), new Types.ObjectId(customer.id), tz) : null,
   ]);
   const primary = addresses.find((a) => a.isPrimary) ?? null;
-  const history = tab === "history" || tab === "overview" ? (canBookings ? await customerHistory(user, customer.id, tab === "history" ? page : 1, tab === "history" ? 20 : 5) : null) : null;
+  const [serviceLines, upcoming] = await Promise.all([
+    canBookings && (tab === "history" || tab === "overview") ? customerServiceLines(user, customer.id, { scope: "history", page: tab === "history" ? page : 1, pageSize: tab === "history" ? 25 : 10 }) : null,
+    canBookings && tab === "overview" ? customerServiceLines(user, customer.id, { scope: "upcoming", pageSize: 10 }) : null,
+  ]);
   const canWrite = can(user, "customers:write");
   const currency = user.organization.currency;
   const [finance, loyalty, cfDefs] = await Promise.all([
@@ -83,6 +87,8 @@ export default async function CustomerProfilePage({ params, searchParams }: { pa
     tab === "loyalty" ? loyaltyHistory(user, customer.id, page) : null,
     tab === "overview" ? customFieldDefsFor(user.organizationId, "customer") : null,
   ]);
+  const money = tab === "overview" && can(user, "financials:read") ? await customerFinancialSummary(user, customer.id) : null;
+  const points = tab === "overview" && can(user, "loyalty:read") ? (await loyaltyHistory(user, customer.id, 1, 1)).balance : null;
 
   return (
     <>
@@ -102,7 +108,7 @@ export default async function CustomerProfilePage({ params, searchParams }: { pa
             </div>
             {customer.companyName && customer.companyName !== customer.name ? <p className="text-sm text-muted">{customer.companyName}</p> : null}
             <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
-              <CallActions e164={customer.phone} display={customer.phoneDisplay} target={{ type: "customer", id: customer.id, name: customer.name }} canLog={can(user, "calls:log")} browserCalling={browserCallingAvailable(user)} />
+              <CallActions e164={customer.phone} display={customer.phoneDisplay} target={{ type: "customer", id: customer.id, name: customer.name }} canLog={can(user, "calls:log")} browserCalling={browserCallingAvailable(user)} prominent />
               <EmailLink email={customer.email} />
               {!customer.phone && !customer.email ? <span className="text-muted">No contact details</span> : null}
             </div>
@@ -144,6 +150,7 @@ export default async function CustomerProfilePage({ params, searchParams }: { pa
             ) : (
               <span className="text-muted">None yet</span>
             )}
+            {canWrite ? <EditAddressButton customerId={customer.id} address={primary} /> : null}
           </dd>
           {customer.contactSource ? (
             <>
@@ -174,55 +181,73 @@ export default async function CustomerProfilePage({ params, searchParams }: { pa
         <div className="space-y-6">
           {metrics ? (
             <section aria-labelledby="metrics-h">
-              <h2 id="metrics-h" className="sr-only">Service metrics</h2>
-              <dl className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
-                {[
-                  ["Completed bookings", String(metrics.completedBookings), "Bookings marked completed"],
-                  ["Completed service items", String(metrics.completedServiceItems), "Sum of item quantities in completed bookings"],
-                  ["Distinct service days", String(metrics.distinctServiceDays), `Different local dates (${tz}) with a completed booking`],
-                  ["Upcoming bookings", String(metrics.upcomingBookings), "Scheduled from now on"],
-                  ["First completed service", metrics.firstCompletedAt ? formatDate(metrics.firstCompletedAt, tz) : "—", "Scheduled date"],
-                  ["Last completed service", metrics.lastCompletedAt ? formatDate(metrics.lastCompletedAt, tz) : "—", "Scheduled date"],
-                ].map(([label, value, hint]) => (
+              <h2 id="metrics-h" className="sr-only">Summary</h2>
+              <dl className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+                {(
+                  [
+                    ["Completed bookings", String(metrics.completedBookings), "Visits marked completed"],
+                    ["Completed services", String(metrics.completedServices), "Services in those visits (sofa + carpet = 2)"],
+                    ["Service days", String(metrics.distinctServiceDays), `Different dates with a completed job (${tz})`],
+                    ["Upcoming bookings", String(metrics.upcomingBookings), "Scheduled from now on"],
+                    ...(money ? [["Total paid", formatCents(money.netReceivedCents, currency), "Payments received minus refunds (not booking prices)"]] : []),
+                  ] as [string, string, string][]
+                ).map(([label, value, hint]) => (
                   <div key={label} className="rounded-xl border border-line bg-surface p-4">
                     <dt className="text-xs font-medium text-muted">{label}</dt>
                     <dd className="mt-1 text-2xl font-semibold tabular-nums">{value}</dd>
                     <dd className="mt-1 text-xs text-muted">{hint}</dd>
                   </div>
                 ))}
+                {points !== null ? (
+                  <div className="rounded-xl border border-line bg-surface p-4">
+                    <dt className="text-xs font-medium text-muted">Points balance</dt>
+                    <dd className="mt-1 text-2xl font-semibold tabular-nums">{points}</dd>
+                    <dd className="mt-1">{can(user, "loyalty:adjust") ? <LoyaltyEntryButton customerId={customer.id} balance={points} compact /> : <span className="text-xs text-muted">From the points ledger</span>}</dd>
+                  </div>
+                ) : null}
               </dl>
             </section>
           ) : null}
-          <div className="grid gap-6 lg:grid-cols-2">
+
+          {upcoming ? (
             <Card>
-              <CardHeader title="Recent bookings" actions={canBookings ? <Link href={`/dashboard/customers/${customer.id}?tab=history`} className="text-sm font-medium text-brand underline-offset-4 hover:underline">All bookings</Link> : null} />
-              {history && history.items.length ? (
-                <ul className="divide-y divide-line">
-                  {history.items.map((h) => (
-                    <li key={h.id} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-sm">
-                      <Link href={`/dashboard/bookings/${h.id}`} className="font-medium underline-offset-4 hover:underline">
-                        {formatDateTime(h.scheduledStartAt, tz)}
-                      </Link>
-                      <BookingStatusBadge status={h.status} />
-                      <p className="w-full text-muted">{h.services}</p>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="px-5 py-6 text-sm text-muted">{canBookings ? "No bookings yet." : "You don't have access to bookings."}</p>
-              )}
-            </Card>
-            <Card>
-              <CardHeader title="Internal notes" description="Office only" />
-              <p className="whitespace-pre-wrap px-5 py-4 text-sm">{customer.notes || <span className="text-muted">No notes.</span>}</p>
-            </Card>
-          </div>
-          {cfDefs && cfDefs.length ? (
-            <Card>
-              <CardHeader title="Additional details" description="Custom fields set by your organization" />
-              <CustomFieldValues defs={cfDefs} values={customer.customFields} timezone={tz} />
+              <CardHeader title="Upcoming bookings" actions={can(user, "bookings:write") && !customer.archived ? <Link href={`/dashboard/bookings/new?customerId=${customer.id}`} className="text-sm font-medium text-brand underline-offset-4 hover:underline">New booking</Link> : null} />
+              <ServiceTable rows={upcoming.items} tz={tz} showPaid={false} canCleaners={can(user, "cleaners:read")} empty="Nothing scheduled." />
             </Card>
           ) : null}
+
+          <Card>
+            <CardHeader
+              title="Service history"
+              description="One row per service. Amount paid = payments applied to that service; booking prices are never counted as paid."
+              actions={serviceLines && serviceLines.total > serviceLines.items.length ? <Link href={`/dashboard/customers/${customer.id}?tab=history`} className="text-sm font-medium text-brand underline-offset-4 hover:underline">All {serviceLines.total} services</Link> : null}
+            />
+            {serviceLines ? (
+              <ServiceTable rows={serviceLines.items} tz={tz} showPaid={can(user, "financials:read")} canCleaners={can(user, "cleaners:read")} empty="No services yet." />
+            ) : (
+              <p className="px-5 py-6 text-sm text-muted">You don’t have access to bookings.</p>
+            )}
+            {money && money.unallocatedCreditCents > 0 ? (
+              <p className="border-t border-line px-5 py-3 text-xs text-muted">
+                {formatCents(money.unallocatedCreditCents, currency)} was received but not applied to a specific service, so it isn’t shown against any row (it is included in Total paid).
+              </p>
+            ) : null}
+          </Card>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Card>
+              <CardHeader title="Internal notes" description="Office only" actions={canWrite ? <Link href={`/dashboard/customers/${customer.id}/edit`} className="text-sm font-medium text-brand underline-offset-4 hover:underline">Edit</Link> : null} />
+              <p className="whitespace-pre-wrap px-5 py-4 text-sm">{customer.notes || <span className="text-muted">No notes.</span>}</p>
+            </Card>
+            <Card>
+              <CardHeader
+                title="Additional details"
+                description={cfDefs && cfDefs.some((d) => !d.archived) ? "Fields set up by your organization" : "No custom fields yet"}
+                actions={cfDefs && cfDefs.some((d) => !d.archived) && canWrite ? <CustomFieldsEditor customerId={customer.id} defs={cfDefs} values={customer.customFields} /> : can(user, "customFields:manage") ? <Link href="/dashboard/custom-fields" className="text-sm font-medium text-brand underline-offset-4 hover:underline">Add a field</Link> : null}
+              />
+              {cfDefs && cfDefs.some((d) => !d.archived) ? <CustomFieldValues defs={cfDefs} values={customer.customFields} timezone={tz} /> : <p className="px-5 py-4 text-sm text-muted">Add fields such as “Number of pets” or “Gate code” in Custom fields.</p>}
+            </Card>
+          </div>
         </div>
       ) : null}
 
@@ -234,34 +259,12 @@ export default async function CustomerProfilePage({ params, searchParams }: { pa
 
       {tab === "history" ? (
         <Card>
-          {!history ? (
+          {!serviceLines ? (
             <EmptyState icon={ClipboardList} title="You don't have access to bookings" />
-          ) : history.items.length === 0 ? (
-            <EmptyState icon={ClipboardList} title="No bookings yet" />
           ) : (
             <>
-              <ul className="divide-y divide-line">
-                {history.items.map((h) => (
-                  <li key={h.id} className="grid gap-1 px-5 py-3 text-sm md:grid-cols-[11rem_1fr_auto] md:gap-4">
-                    <div>
-                      <Link href={`/dashboard/bookings/${h.id}`} className="font-medium underline-offset-4 hover:underline">
-                        {formatDateTime(h.scheduledStartAt, tz)}
-                      </Link>
-                      <p className="text-xs text-muted">{h.reference}</p>
-                    </div>
-                    <div className="min-w-0">
-                      <p>{h.services}</p>
-                      <p className="text-muted">{h.address}</p>
-                      <p className="text-muted">{h.cleaners.length ? `Cleaners: ${h.cleaners.join(", ")}` : "Unassigned"}</p>
-                    </div>
-                    <div className="flex items-start gap-3 md:flex-col md:items-end">
-                      <BookingStatusBadge status={h.status} />
-                      {h.subtotalCents !== null ? <span className="tabular-nums">{formatCents(h.subtotalCents, h.currency)}</span> : null}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              <Pagination page={history.page} totalPages={history.totalPages} total={history.total} basePath={`/dashboard/customers/${customer.id}`} params={{ tab: "history" }} />
+              <ServiceTable rows={serviceLines.items} tz={tz} showPaid={can(user, "financials:read")} canCleaners={can(user, "cleaners:read")} empty="No services yet." />
+              <Pagination page={serviceLines.page} totalPages={serviceLines.totalPages} total={serviceLines.total} basePath={`/dashboard/customers/${customer.id}`} params={{ tab: "history" }} />
             </>
           )}
         </Card>
@@ -440,6 +443,53 @@ function FinanceTab({ customerId, data: [summary, history, open], currency, time
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+/** Date | Service | Service address | Amount paid | Cleaner | Status — one row per service line. */
+function ServiceTable({ rows, tz, showPaid, canCleaners, empty }: { rows: ServiceLineRow[]; tz: string; showPaid: boolean; canCleaners: boolean; empty: string }) {
+  if (rows.length === 0) return <p className="px-5 py-6 text-sm text-muted">{empty}</p>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[46rem] text-sm">
+        <thead className="bg-canvas text-left text-xs text-muted">
+          <tr>
+            <th scope="col" className="px-4 py-2 font-medium">Date</th>
+            <th scope="col" className="px-4 py-2 font-medium">Service</th>
+            <th scope="col" className="px-4 py-2 font-medium">Service address</th>
+            {showPaid ? <th scope="col" className="px-4 py-2 text-right font-medium">Amount paid</th> : null}
+            <th scope="col" className="px-4 py-2 font-medium">Cleaner</th>
+            <th scope="col" className="px-4 py-2 font-medium">Status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line">
+          {rows.map((r) => (
+            <tr key={`${r.bookingId}-${r.lineItemId}`}>
+              <td className="whitespace-nowrap px-4 py-2">
+                <Link href={`/dashboard/bookings/${r.bookingId}`} className="font-medium text-brand underline-offset-4 hover:underline">{formatDate(r.date, tz)}</Link>
+                <span className="block text-xs text-muted">{r.reference}</span>
+              </td>
+              <td className="px-4 py-2">{r.service}{r.quantity > 1 ? ` ×${r.quantity}` : ""}</td>
+              <td className="px-4 py-2">{r.city}<span className="block text-xs text-muted">{r.address}</span></td>
+              {showPaid ? <td className="px-4 py-2 text-right tabular-nums">{r.paidCents ? formatCents(r.paidCents, r.currency) : <span className="text-muted">—</span>}</td> : null}
+              <td className="px-4 py-2">
+                {r.cleaners.length === 0 ? (
+                  <Badge tone="pending">Unassigned</Badge>
+                ) : (
+                  r.cleaners.map((c, i) => (
+                    <span key={c.id}>
+                      {i > 0 ? ", " : ""}
+                      {canCleaners ? <Link href={`/dashboard/cleaners/${c.id}`} className="underline-offset-4 hover:underline">{c.name}</Link> : c.name}
+                    </span>
+                  ))
+                )}
+              </td>
+              <td className="px-4 py-2"><BookingStatusBadge status={r.status} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

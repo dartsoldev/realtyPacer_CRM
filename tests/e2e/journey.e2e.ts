@@ -244,6 +244,50 @@ describe("owner journey", () => {
     expect(today).toMatch(/^\d{4}-/);
   });
 
+  it("19. customer & service filter, customer profile, leads intake and integrations over HTTP", async () => {
+    const filter = await ownerClient.json<{ totals: Record<string, number> }>("POST", "/api/v1/reports/customer-services", { conditions: [{ field: "city", op: "eq", value: "Mississauga" }, { field: "service", op: "eq", value: S.sofa }] });
+    expect(filter.status, filter.text).toBe(200);
+    expect(filter.data.totals).toMatchObject({ customers: 1, services: 1, paidCents: 12000 });
+
+    for (const [path, text] of [
+      ["/dashboard/customer-filter", "Customer &amp; service filter"],
+      [`/dashboard/customers/${S.customer}`, "Service history"],
+      ["/dashboard/settings/integrations", "Not connected"],
+      ["/dashboard/leads", "General / service"],
+      ["/dashboard", "Customer &amp; service filter"],
+    ] as const) {
+      const page = await ownerClient.raw(path);
+      expect(page.status, path).toBe(200);
+      expect(await page.text(), path).toContain(text);
+    }
+
+    const src = await ownerClient.json<{ source: { slug: string; endpoint: string }; secret: string }>("POST", "/api/v1/lead-sources", { name: "Website – cleaning quote", defaultCategory: "general", fieldMap: { "your-name": "name" } });
+    expect(src.status, src.text).toBe(201);
+    expect(src.data.source.endpoint).toBe(`${app.origin}/api/v1/intake/leads/${src.data.source.slug}`);
+    // Server-to-server: no cookies, no Origin header.
+    const send = () =>
+      fetch(src.data.source.endpoint, {
+        method: "POST",
+        headers: { authorization: `Bearer ${src.data.secret}`, "content-type": "application/json", "idempotency-key": "wp-entry-1" },
+        body: JSON.stringify({ "your-name": "Pat Prospect", phone: "905-555-0177", service: "Sofa cleaning", city: "Mississauga" }),
+      });
+    const first = await send();
+    expect(first.status).toBe(201);
+    const leadId = ((await first.json()) as { data: { id: string } }).data.id;
+    expect((await send()).status).toBe(200);
+    const wrong = await fetch(src.data.source.endpoint, { method: "POST", headers: { authorization: "Bearer rpk_wrong", "content-type": "application/json" }, body: "{}" });
+    expect(wrong.status).toBe(401);
+    const leads = await ownerClient.json<{ items: { id: string; name: string }[] }>("GET", "/api/v1/leads?category=general");
+    expect(leads.data.items.map((l) => l.id)).toEqual([leadId]);
+    const conv = await ownerClient.json<{ customerId: string }>("POST", `/api/v1/leads/${leadId}/convert`, { create: true });
+    expect(conv.status, conv.text).toBe(200);
+    const again = await ownerClient.json<{ customerId: string }>("POST", `/api/v1/leads/${leadId}/convert`, { create: true });
+    expect(again.data.customerId).toBe(conv.data.customerId);
+
+    const google = await ownerClient.json<{ configured: boolean; connection: unknown }>("GET", "/api/v1/integrations/google");
+    expect(google.data).toMatchObject({ configured: false, connection: null });
+  });
+
   it("queues and delivers an explicitly sent booking email through the worker", async () => {
     const off = await ownerClient.json<{ preview: { blocked: string | null } }>("GET", `/api/v1/bookings/${S.booking}/email?kind=booking_confirmation`);
     expect(off.data.preview.blocked).toMatch(/turned off/);
@@ -308,10 +352,11 @@ describe("cleaner journey", () => {
   it("is refused other jobs, office data, money and reports", async () => {
     expect((await cleaner.json("GET", `/api/v1/bookings/${S.benJob}`)).status).toBe(404);
     expect((await cleaner.json("POST", `/api/v1/bookings/${S.benJob}/transition`, { action: "start", expectedVersion: 0 })).status).toBe(404);
-    for (const path of ["/api/v1/customers", `/api/v1/customers/${S.customer}`, "/api/v1/payments", `/api/v1/customers/${S.customer}/finance`, `/api/v1/activities?bookingId=${S.anaJob}`, "/api/v1/system/status"]) {
+    for (const path of ["/api/v1/customers", `/api/v1/customers/${S.customer}`, "/api/v1/payments", `/api/v1/customers/${S.customer}/finance`, `/api/v1/activities?bookingId=${S.anaJob}`, "/api/v1/system/status", "/api/v1/leads", "/api/v1/lead-sources", "/api/v1/integrations/google"]) {
       expect([403, 404], path).toContain((await cleaner.json("GET", path)).status);
     }
     expect((await cleaner.json("POST", "/api/v1/reports/run", { definition: { mode: "service", from: localDate(-1), to: localDate(1) } })).status).toBe(403);
+    expect((await cleaner.json("POST", "/api/v1/reports/customer-services", { conditions: [] })).status).toBe(403);
     expect((await cleaner.raw("/api/v1/reports/export", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ definition: { mode: "service", from: localDate(-1), to: localDate(1) } }) })).status).toBe(403);
   });
 });

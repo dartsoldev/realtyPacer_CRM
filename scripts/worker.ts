@@ -15,6 +15,7 @@ import { connectDb, disconnectDb } from "@/lib/db/connect";
 import { getCoreEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { cleanupStaleUploads } from "@/modules/attachments/service";
+import { processCalendarSyncBatch, verifyLinkedEvents } from "@/modules/integrations/google-calendar";
 import { processOutboxBatch, recordHeartbeat } from "@/modules/outbox/service";
 import { storageConfigured } from "@/lib/storage";
 
@@ -22,6 +23,7 @@ const { values } = parseArgs({ options: { once: { type: "boolean", default: fals
 const pollMs = Math.max(2, Math.min(300, Number(process.env.WORKER_POLL_SECONDS) || 15)) * 1000;
 let stopping = false;
 let lastCleanup = 0;
+let lastVerify = 0;
 let wake: (() => void) | null = null;
 
 function stop(signal: string) {
@@ -42,6 +44,13 @@ async function main() {
       const result = await processOutboxBatch(50);
       await recordHeartbeat("outbox", result);
       if (result.sent || result.retried || result.failed) logger.info("worker.outbox_batch", result);
+      const cal = await processCalendarSyncBatch(25);
+      if (cal.synced || cal.retried || cal.failed) logger.info("worker.calendar_batch", cal);
+      if (Date.now() - lastVerify > 60 * 60 * 1000) {
+        lastVerify = Date.now();
+        const v = await verifyLinkedEvents();
+        if (v.flagged) logger.info("worker.calendar_external_changes", v);
+      }
       // Hourly-ish housekeeping: abandoned (never completed) uploads.
       if (storageConfigured() && Date.now() - lastCleanup > 60 * 60 * 1000) {
         lastCleanup = Date.now();

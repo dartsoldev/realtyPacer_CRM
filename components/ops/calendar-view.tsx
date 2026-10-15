@@ -34,11 +34,13 @@ export default function CalendarView({
   cleaners,
   canCreate,
   initialDate,
+  initialView,
 }: {
   timezone: string;
   cleaners: { id: string; name: string }[];
   canCreate: boolean;
   initialDate?: string;
+  initialView?: string;
 }) {
   const router = useRouter();
   const ref = useRef<FullCalendar>(null);
@@ -68,7 +70,7 @@ export default function CalendarView({
         title: e.title,
         start: e.start,
         end: e.end,
-        url: `/dashboard/bookings/${e.id}`,
+        url: bookingHref(e.id),
         backgroundColor: COLORS[e.status].bg,
         borderColor: COLORS[e.status].border,
         textColor: COLORS[e.status].text,
@@ -77,6 +79,15 @@ export default function CalendarView({
     },
     [],
   );
+
+  // Current date/view, kept in the URL so “Back to calendar” returns to the same place.
+  const position = useRef({ date: initialDate ?? "", view: initialView ?? "" });
+  function bookingHref(id: string) {
+    const sp = new URLSearchParams({ from: "calendar" });
+    if (position.current.date) sp.set("date", position.current.date);
+    if (position.current.view) sp.set("view", position.current.view);
+    return `/dashboard/bookings/${id}?${sp}`;
+  }
 
   function refetch() {
     ref.current?.getApi().refetchEvents();
@@ -90,6 +101,7 @@ export default function CalendarView({
         <span className="font-semibold">{e.title}</span>
         <span className="block">[{BOOKING_STATUS_LABELS[e.status]}]</span>
         {e.services ? <span className="block truncate">{e.services}</span> : null}
+        {e.city ? <span className="block truncate">{e.city}</span> : null}
         <span className="block truncate">{e.cleaners.length ? e.cleaners.join(", ") : "Unassigned"}</span>
       </div>
     );
@@ -156,7 +168,12 @@ export default function CalendarView({
           plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
           timeZone="UTC"
           now={nowWall}
-          initialView={isNarrow ? "listWeek" : "timeGridWeek"}
+          initialView={initialView ?? (isNarrow ? "listWeek" : "timeGridWeek")}
+          datesSet={(arg) => {
+            const date = utcKey(arg.view.calendar.getDate());
+            position.current = { date, view: arg.view.type };
+            window.history.replaceState(null, "", `/dashboard/calendar?date=${date}&view=${arg.view.type}`);
+          }}
           initialDate={initialDate}
           headerToolbar={isNarrow ? { left: "prev,next", center: "title", right: "today" } : { left: "prev,next today", center: "title", right: "dayGridMonth,timeGridWeek,timeGridDay,listWeek" }}
           footerToolbar={isNarrow ? { center: "listWeek,timeGridDay,dayGridMonth" } : undefined}
@@ -173,7 +190,7 @@ export default function CalendarView({
           eventContent={renderEvent}
           eventClick={(arg: EventClickArg) => {
             arg.jsEvent.preventDefault();
-            router.push(`/dashboard/bookings/${arg.event.id}`);
+            router.push(bookingHref(arg.event.id));
           }}
           dateClick={
             canCreate

@@ -131,16 +131,16 @@ export const MAX_POINTS_CHANGE = 1_000_000;
 export const CUSTOM_FIELD_ENTITIES = ["customer", "booking", "cleaner"] as const;
 export type CustomFieldEntity = (typeof CUSTOM_FIELD_ENTITIES)[number];
 
-export const CUSTOM_FIELD_TYPES = ["short_text", "long_text", "number", "date", "boolean", "single_select", "multi_select", "url"] as const;
+export const CUSTOM_FIELD_TYPES = ["short_text", "number", "date", "single_select", "boolean", "multi_select", "long_text", "url"] as const;
 export type CustomFieldType = (typeof CUSTOM_FIELD_TYPES)[number];
 export const CUSTOM_FIELD_TYPE_LABELS: Record<CustomFieldType, string> = {
-  short_text: "Short text",
-  long_text: "Long text",
+  short_text: "Text",
+  long_text: "Text (long, not filterable)",
   number: "Number",
   date: "Date",
-  boolean: "Yes / no",
-  single_select: "Single select",
-  multi_select: "Multi-select",
+  boolean: "Checkbox (yes / no)",
+  single_select: "Dropdown",
+  multi_select: "Dropdown (several choices)",
   url: "Web link (URL)",
 };
 /** Types that may be used as report filters (long text and URLs never are). */

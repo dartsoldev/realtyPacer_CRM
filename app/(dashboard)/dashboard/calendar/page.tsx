@@ -16,6 +16,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   if (!can(user, "calendar:read")) return <AccessDenied />;
   const sp = await searchParams;
   const initialDate = typeof sp.date === "string" && isDateKey(sp.date) ? sp.date : undefined;
+  const initialView = typeof sp.view === "string" && ["dayGridMonth", "timeGridWeek", "timeGridDay", "listWeek"].includes(sp.view) ? sp.view : undefined;
   const cleaners = can(user, "cleaners:read") ? (await listCleaners(user, { status: "all", page: 1, pageSize: 100 })).items.map((c) => ({ id: c.id, name: c.name })) : [];
   return (
     <>
@@ -30,7 +31,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
           ) : null
         }
       />
-      <CalendarShell timezone={user.organization.timezone} cleaners={cleaners} canCreate={can(user, "bookings:write")} initialDate={initialDate} />
+      <CalendarShell timezone={user.organization.timezone} cleaners={cleaners} canCreate={can(user, "bookings:write")} initialDate={initialDate} initialView={initialView} />
     </>
   );
 }

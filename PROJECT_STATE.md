@@ -1,6 +1,6 @@
 # PROJECT_STATE — RealtyPacer
 
-_Last updated: 2026-10-15 · Phases 1–4 implemented; see "Checks" and docs/RELEASE_CHECKLIST.md for exactly what was verified and what still depends on external setup._
+_Last updated: 2026-10-15 · Phases 1–4 plus the October refinement (customer profile, customer & service filter, leads, Google Calendar) implemented; see "Checks" and docs/RELEASE_CHECKLIST.md for exactly what was verified and what still depends on external setup._
 
 Core relationship: **Customer → Service address → Booking → Service items → Assigned cleaners.**
 
@@ -336,11 +336,27 @@ Re-verified and unchanged: Argon2id hashing; hashed single-use tokens with expir
 
 `Dockerfile` (multi-stage, Node 22 slim, standalone server, non-root `node`, `HEALTHCHECK`, `STOPSIGNAL SIGTERM`, worker/ops CLIs bundled by esbuild into `dist/`), `docker-compose.yml` (web, worker, migrate profile), `docker-compose.local.yml` (dev only: Mongo replica set, Mailpit, S3 mock), `instrumentation.ts` (production startup config validation), `docs/DEPLOYMENT.md`, `docs/OPERATIONS.md`, `docs/deploy/*`.
 
+## October 2026 refinement
+
+- **Customer profile**: `customerServiceLines` (one row per service line; history = completed/cancelled/in-progress or past; upcoming = scheduled from now). Paid = line `allocatedCents` (financials:read only). "Completed services" = lines in completed bookings; "Completed bookings" counts jobs. Editing an address never changes `Booking.addressSnapshot`.
+- **Customer & service filter** (`modules/reports/customer-filter.ts`, mode `service_filter`): unwinds booking lines, applies registry filters (AND across filters, any-of within one), defaults to COMPLETED unless a status filter is present, `$facet` totals over the full result before paging. Paid toward matching services = allocations to the matching lines only. Unallocated customer credit is reported separately ("unattributed"), never split. City = booking service city; "Customer address city (current)" is a separate field.
+- **Custom fields**: labels like Points/Total paid/Balance are refused (system-calculated).
+- **Leads** (`lib/db/models/lead.ts`, `modules/leads/*`): category (general | real_estate) separate from source and channel (manual | csv_import | intake). Unique `(org, sourceId, externalId)` makes intake and CSV retries idempotent. Conversion uses `createCustomer(..., { importRef: "lead:<id>" })` (unique index) so retries and concurrent clicks create one customer.
+- **Intake**: `POST /api/v1/intake/leads/:slug`, Bearer key (SHA-256 stored, timing-safe compare), JSON or URL-encoded, 32 KB, per-source/IP limits, field mapping + synonyms, external id from mapped field → `Idempotency-Key` → payload hash. 90-day submission log without secrets or payloads.
+- **Google Calendar** (`modules/integrations/google-calendar.ts`): OAuth web flow + PKCE, AES-256-GCM token storage, one `CalendarSync` row per booking with `requestSeq`, deterministic event id `rp<bookingId>`, `sendUpdates=none`, worker batch + hourly `verifyLinkedEvents` (documented refresh strategy; no push channels, no import). Busy warning reads start/end only.
+- **Permissions**: `integrations:manage` (admin/superadmin only, not grantable); `leads:read`/`leads:write` (admin; grantable to staff). Cleaners get none of these.
+
 ## Commands
 
 `npm run dev` · `npm run worker` · `npm run db:migrate` · `npm run test:e2e` · `npm run dev:services` (`-- --smtp-only` to use your own DB) · `npm run dev:fixtures -- --org-id <id> --yes` · `npm run typecheck` · `npm run lint` · `npm test` (optionally `TEST_MONGODB_URI=…`) · `npm run build` · `npm run check` · `npm run db:indexes` · `npm run bootstrap:superadmin -- --name … --email …`
 
 ## Checks
+
+**October refinement (2026-10-15)** — run on this machine against a local MongoDB 8.2.6 replica set:
+- `npm run typecheck` ✔ · `npm run lint` ✔ · `npm run build` ✔ · `npm run build:cli` ✔.
+- `npm test`: **129/129 passed** (11 files). New `tests/refinement.test.ts` (20 tests): Mississauga AND Sofa filter (customers, per-customer paid, full-result totals across pages, carpet/Toronto/unpaid excluded, unattributed credit reported, any-of, scheduled only with a status filter), service date and name filters, custom field column + filter + rename, profile service lines and address edit keeping job snapshots, money hidden without financial access, autocomplete and tomorrow/unassigned job lists, cleaner phone required, lead intake (two categories, mapping, retries, Idempotency-Key, hash dedupe, bad/rotated key, paused source, 422/415, rate limit, logs without secrets), conversion (existing match, retry and concurrent create → one customer, history kept), Google sync with a mocked Google API (create/update/cancel, no attendees or office notes or prices, 409 → update, backoff, failure after max attempts, manual retry, invalid_grant → reconnect, encryption/tamper, single-use user-bound state, upcoming bookings queued on connect, busy times exclude own events, not-configured state), permissions and organization isolation.
+- `npm run test:e2e`: **15/15 passed** against the production build, including step 19 (customer-services API totals, new pages render, lead source + server-to-server intake with retry and wrong key, conversion retry, Google "not configured") and cleaner refusals for leads, lead sources, integrations and the filter API.
+- Not verified: a real Google account/calendar (no OAuth client configured), a real website form submission (form platform unknown), placed calls; a manual browser pass of the new screens was not done in this round (pages verified by server render over HTTP and by tests).
 
 **Phase 4 (2026-10-15)** — final run on this machine:
 - `npm run typecheck` ✔ · `npm run lint` ✔ (0 problems) · `npm run build` ✔ (no warnings) · `npm run build:cli` ✔.

@@ -31,8 +31,8 @@ function CleanerDialog({ cleaner, onClose }: { cleaner: CleanerDTO | null; onClo
   const [cf, setCf] = useState<CustomFieldDraft>(cleaner?.customFields ?? {});
 
   async function save() {
-    if (!v.name.trim()) {
-      setErrors({ name: "Name is required" });
+    if (!v.name.trim() || !v.phone.trim()) {
+      setErrors({ ...(v.name.trim() ? {} : { name: "Name is required" }), ...(v.phone.trim() ? {} : { phone: "Phone is required" }) });
       return;
     }
     setSaving(true);
@@ -67,7 +67,7 @@ function CleanerDialog({ cleaner, onClose }: { cleaner: CleanerDTO | null; onClo
           {({ id, describedBy, invalid }) => <Input id={id} aria-describedby={describedBy} invalid={invalid} value={v.name} onChange={set("name")} maxLength={120} />}
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Phone" hint="Canada by default; start with + for other countries" error={errors.phone}>
+          <Field label="Phone" required hint="Canada by default; start with + for other countries" error={errors.phone}>
             {({ id, describedBy, invalid }) => <Input id={id} type="tel" aria-describedby={describedBy} invalid={invalid} value={v.phone} onChange={set("phone")} maxLength={40} />}
           </Field>
           <Field label="Email (optional)" error={errors.email}>

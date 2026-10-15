@@ -303,6 +303,8 @@ export async function lookupCustomers(user: CurrentUser, q: string) {
 
 export type CustomerMetrics = {
   completedBookings: number;
+  /** Service lines in completed bookings (a booking with sofa + carpet = 2 services). */
+  completedServices: number;
   completedServiceItems: number;
   distinctServiceDays: number;
   upcomingBookings: number;
@@ -320,7 +322,7 @@ export type CustomerMetrics = {
  */
 export async function customerMetrics(organizationId: Types.ObjectId, customerId: Types.ObjectId, timezone: string, now = new Date()): Promise<CustomerMetrics> {
   const [res] = await Booking.aggregate<{
-    completed: { bookings: number; items: number; first: Date; last: Date; days: string[] }[];
+    completed: { bookings: number; services: number; items: number; first: Date; last: Date; days: string[] }[];
     upcoming: { n: number }[];
   }>([
     { $match: { organizationId, customerId } },
@@ -332,6 +334,7 @@ export async function customerMetrics(organizationId: Types.ObjectId, customerId
             $group: {
               _id: null,
               bookings: { $sum: 1 },
+              services: { $sum: { $size: "$lineItems" } },
               items: { $sum: { $sum: "$lineItems.quantity" } },
               first: { $min: "$scheduledStartAt" },
               last: { $max: "$scheduledStartAt" },
@@ -346,6 +349,7 @@ export async function customerMetrics(organizationId: Types.ObjectId, customerId
   const c = res?.completed[0];
   return {
     completedBookings: c?.bookings ?? 0,
+    completedServices: c?.services ?? 0,
     completedServiceItems: c?.items ?? 0,
     distinctServiceDays: c?.days.length ?? 0,
     upcomingBookings: res?.upcoming[0]?.n ?? 0,
@@ -397,4 +401,91 @@ export async function customerHistory(user: CurrentUser, customerId: string, pag
     currency: r.currency,
   }));
   return { items, page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
+}
+
+export type ServiceLineRow = {
+  bookingId: string;
+  lineItemId: string;
+  reference: string;
+  date: string;
+  service: string;
+  quantity: number;
+  address: string;
+  city: string;
+  /** Payments applied to this service line (net of refunds). Null without financial access. Never the booking price. */
+  paidCents: number | null;
+  cleaners: { id: string; name: string }[];
+  status: BookingStatus;
+  currency: string;
+};
+
+/**
+ * Service history, one row per service line (date, service, the address the
+ * job was actually done at, amount paid toward that service, cleaners,
+ * status). `scope: "upcoming"` = scheduled from now on; otherwise past and
+ * in-progress/completed/cancelled jobs.
+ */
+export async function customerServiceLines(user: CurrentUser, customerId: string, opts: { scope: "history" | "upcoming"; page?: number; pageSize?: number }, now = new Date()) {
+  if (!user.permissions.has("customers:read") || !user.permissions.has("bookings:read")) throw Errors.forbidden();
+  await connectDb();
+  const c = await loadOrgCustomer(user, customerId);
+  const page = opts.page ?? 1;
+  const pageSize = opts.pageSize ?? 25;
+  const base = { organizationId: new Types.ObjectId(user.organizationId), customerId: c._id };
+  const filter =
+    opts.scope === "upcoming"
+      ? { ...base, status: "SCHEDULED", scheduledStartAt: { $gte: now } }
+      : { ...base, $or: [{ status: { $in: ["COMPLETED", "CANCELLED", "IN_PROGRESS"] } }, { scheduledStartAt: { $lt: now } }] };
+  const sort: Record<string, 1 | -1> = opts.scope === "upcoming" ? { scheduledStartAt: 1, _id: 1 } : { scheduledStartAt: -1, _id: -1 };
+  const [agg] = await Booking.aggregate<{ rows: Record<string, unknown>[]; count: { n: number }[] }>([
+    { $match: filter },
+    { $sort: sort },
+    { $unwind: "$lineItems" },
+    {
+      $facet: {
+        rows: [
+          { $skip: (page - 1) * pageSize },
+          { $limit: pageSize },
+          { $project: { reference: 1, scheduledStartAt: 1, status: 1, currency: 1, assignedCleanerIds: 1, line1: "$addressSnapshot.line1", city: "$addressSnapshot.city", line: "$lineItems" } },
+        ],
+        count: [{ $count: "n" }],
+      },
+    },
+  ]);
+  const rows = agg?.rows ?? [];
+  const cleanerIds = [...new Set(rows.flatMap((r) => (r.assignedCleanerIds as Types.ObjectId[]).map(String)))];
+  const cleaners = cleanerIds.length ? await Cleaner.find({ _id: { $in: cleanerIds }, organizationId: user.organizationId }).select("name").lean() : [];
+  const names = new Map(cleaners.map((x) => [String(x._id), x.name]));
+  const canMoney = user.permissions.has("financials:read");
+  const total = agg?.count[0]?.n ?? 0;
+  const items: ServiceLineRow[] = rows.map((r) => {
+    const line = r.line as { _id: Types.ObjectId; name: string; quantity: number; allocatedCents?: number };
+    return {
+      bookingId: String(r._id),
+      lineItemId: String(line._id),
+      reference: String(r.reference),
+      date: (r.scheduledStartAt as Date).toISOString(),
+      service: line.name,
+      quantity: line.quantity,
+      address: String(r.line1 ?? ""),
+      city: String(r.city ?? ""),
+      paidCents: canMoney ? (line.allocatedCents ?? 0) : null,
+      cleaners: (r.assignedCleanerIds as Types.ObjectId[]).map((id) => ({ id: String(id), name: names.get(String(id)) ?? "Former cleaner" })),
+      status: r.status as BookingStatus,
+      currency: String(r.currency),
+    };
+  });
+  return { items, page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
+}
+
+/** Sets custom-field values from the profile (validated against the definitions; other fields untouched). */
+export async function updateCustomerCustomFields(user: CurrentUser, id: string, raw: unknown) {
+  if (!user.permissions.has("customers:write")) throw Errors.forbidden();
+  const input = z.object({ customFields: z.record(z.string(), z.unknown()) }).strict().parse(raw);
+  await connectDb();
+  const existing = await loadOrgCustomer(user, id);
+  const customFields = await validateCustomFieldValues(user.organizationId, "customer", input.customFields, (existing.customFields ?? {}) as Record<string, unknown>, "update");
+  await Customer.updateOne({ _id: existing._id, organizationId: user.organizationId }, { $set: { customFields } });
+  await recordActivity({ organizationId: user.organizationId, actorId: user.id, type: "customer.updated", customerId: existing._id, metadata: { fields: ["custom fields"] } });
+  return toCustomerDTO((await Customer.findById(existing._id).lean())!);
 }
