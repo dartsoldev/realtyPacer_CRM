@@ -14,6 +14,9 @@ export { AuthToken } from "./auth-token";
 export { AuditEvent } from "./audit-event";
 export { RateLimit } from "./rate-limit";
 export { Activity } from "./activity";
+export { Refund } from "./refund";
+export { ChargeAdjustment } from "./charge-adjustment";
+export { SavedView } from "./saved-view";
 
 import { Organization } from "./organization";
 import { User } from "./user";
@@ -29,6 +32,9 @@ import { AuthToken } from "./auth-token";
 import { AuditEvent } from "./audit-event";
 import { RateLimit } from "./rate-limit";
 import { Activity } from "./activity";
+import { Refund } from "./refund";
+import { ChargeAdjustment } from "./charge-adjustment";
+import { SavedView } from "./saved-view";
 
 export const ALL_MODELS = [
   Organization,
@@ -45,4 +51,7 @@ export const ALL_MODELS = [
   AuditEvent,
   RateLimit,
   Activity,
+  Refund,
+  ChargeAdjustment,
+  SavedView,
 ] as const;

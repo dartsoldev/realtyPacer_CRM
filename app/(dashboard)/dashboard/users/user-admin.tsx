@@ -20,11 +20,17 @@ const GRANT_LABELS: Partial<Record<Permission, string>> = {
   "bookings:price_override": "Change booking prices (needs “See prices”)",
   "cleaners:read": "View cleaners",
   "cleaners:write": "Manage cleaners",
-  "payments:read": "View payments",
-  "payments:write": "Record payments",
+  "financials:read": "View payments, balances and credit",
+  "payments:record": "Record payments",
+  "payments:allocate": "Apply customer credit",
+  "payments:refund": "Record refunds and reverse receipts",
+  "billing:finalize": "Finalize charges and set discounts",
+  "billing:adjust": "Credit or adjust finalized charges",
   "reports:read": "View reports",
+  "reports:export": "Export reports (CSV)",
+  "views:share": "Share saved views with everyone",
   "loyalty:read": "View loyalty points",
-  "loyalty:write": "Adjust loyalty points",
+  "loyalty:adjust": "Grant, redeem and correct points",
 };
 
 function Modal({ title, open, onClose, children }: { title: string; open: boolean; onClose: () => void; children: React.ReactNode }) {

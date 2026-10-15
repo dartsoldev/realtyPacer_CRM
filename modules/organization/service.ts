@@ -44,6 +44,16 @@ export const organizationUpdateSchema = z
       })
       .strict()
       .optional(),
+    /** Explicit, superadmin-only. Snapshotted onto bookings when charges are finalized. */
+    tax: z
+      .object({
+        enabled: z.boolean(),
+        rateBasisPoints: z.number().int().min(0).max(10_000),
+        label: z.string().trim().max(40).default(""),
+      })
+      .strict()
+      .refine((t) => !t.enabled || (t.rateBasisPoints > 0 && t.label.length > 0), { message: "Enter a tax name and a rate above 0, or turn tax off" })
+      .optional(),
   })
   .strict();
 
@@ -55,13 +65,16 @@ export type OrganizationSettings = {
   currency: string;
   contact: Record<string, string>;
   terminology: { customer: string; booking: string; provider: string };
+  tax: { enabled: boolean; rateBasisPoints: number; label: string };
   updatedAt: string;
 };
 
 function toSettings(org: Record<string, unknown> & { _id: unknown; updatedAt?: Date }): OrganizationSettings {
   const contact = (org.contact ?? {}) as Record<string, string | undefined>;
   const terminology = (org.terminology ?? {}) as Record<string, string | undefined>;
+  const tax = (org.tax ?? {}) as { enabled?: boolean; rateBasisPoints?: number; label?: string };
   return {
+    tax: { enabled: Boolean(tax.enabled), rateBasisPoints: tax.rateBasisPoints ?? 0, label: tax.label ?? "" },
     id: String(org._id),
     name: String(org.name),
     displayName: String(org.displayName),
@@ -93,9 +106,10 @@ export async function updateOrganizationSettings(actor: CurrentUser, input: z.in
   const org = await Organization.findById(actor.organizationId).lean();
   if (!org) throw Errors.notFound("Organization");
 
-  const changingProtected = PROTECTED_ORGANIZATION_FIELDS.filter(
+  const changingProtected: string[] = PROTECTED_ORGANIZATION_FIELDS.filter(
     (f) => input[f] !== undefined && input[f] !== (org as Record<string, unknown>)[f],
   );
+  if (input.tax !== undefined) changingProtected.push("tax");
   if (changingProtected.length > 0 && !actor.permissions.has("organization:update_protected")) {
     throw Errors.forbidden(`Only a superadmin can change: ${changingProtected.join(", ")}.`);
   }
@@ -105,6 +119,7 @@ export async function updateOrganizationSettings(actor: CurrentUser, input: z.in
   for (const f of ["name", "displayName", "timezone", "currency"] as const) if (input[f] !== undefined) set[f] = input[f];
   if (input.contact) for (const [k, v] of Object.entries(input.contact)) set[`contact.${k}`] = v;
   if (input.terminology) for (const [k, v] of Object.entries(input.terminology)) set[`terminology.${k}`] = v;
+  if (input.tax) set.tax = input.tax.enabled ? input.tax : { enabled: false, rateBasisPoints: 0, label: "" };
 
   const updated = await Organization.findByIdAndUpdate(actor.organizationId, { $set: set }, { returnDocument: "after", runValidators: true }).lean();
   await recordAudit({

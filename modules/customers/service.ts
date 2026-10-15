@@ -13,6 +13,7 @@ import { escapeRegex, normalizeCity, normalizeEmail, OBJECT_ID_RE } from "@/lib/
 import { parsePhone, phoneSearchDigits } from "@/lib/domain/phone";
 import { AppError, Errors } from "@/lib/http/errors";
 import { recordActivity } from "@/modules/activities/service";
+import { customFieldDefsFor, validateCustomFieldValues, visibleCustomFieldValues } from "@/modules/custom-fields/service";
 import { addressFieldsFromInput, refreshCustomerCities } from "./addresses";
 import { createCustomerSchema, customerListQuery, displayNameOf, updateCustomerSchema, type CustomerFields } from "./schemas";
 
@@ -33,6 +34,7 @@ export type CustomerDTO = {
   primaryCity: string | null;
   archived: boolean;
   createdAt: string;
+  customFields: Record<string, unknown>;
 };
 
 type CustomerLike = {
@@ -52,6 +54,7 @@ type CustomerLike = {
   primaryCity?: string | null;
   archivedAt?: Date | null;
   createdAt?: Date;
+  customFields?: unknown;
 };
 
 /** Date-only values are stored at 00:00 UTC of that calendar date. */
@@ -80,6 +83,8 @@ export function toCustomerDTO(c: CustomerLike): CustomerDTO {
     primaryCity: c.primaryCity ?? null,
     archived: Boolean(c.archivedAt),
     createdAt: (c.createdAt ?? new Date(0)).toISOString(),
+    // Shaped again per viewer/definitions by callers that expose custom fields.
+    customFields: (c.customFields && typeof c.customFields === "object" ? c.customFields : {}) as Record<string, unknown>,
   };
 }
 
@@ -157,6 +162,7 @@ export async function createCustomer(user: CurrentUser, raw: unknown) {
   await connectDb();
   const orgId = new Types.ObjectId(user.organizationId);
   const fields = storedFields(input);
+  const customFields = await validateCustomFieldValues(orgId, "customer", input.customFields, {}, "create");
   if (!input.confirmDuplicate) {
     const matches = await findPossibleDuplicates(orgId, fields);
     if (matches.length > 0) {
@@ -165,7 +171,7 @@ export async function createCustomer(user: CurrentUser, raw: unknown) {
   }
   // Customers are not users: no account or invitation is ever created here.
   const id = await withTransaction(async (session) => {
-    const [customer] = await Customer.create([{ organizationId: orgId, ...fields, createdBy: user.id }], { session });
+    const [customer] = await Customer.create([{ organizationId: orgId, ...fields, customFields, createdBy: user.id }], { session });
     if (input.primaryAddress) {
       await ServiceAddress.create(
         [{ organizationId: orgId, customerId: customer!._id, ...addressFieldsFromInput(input.primaryAddress), isPrimary: true }],
@@ -192,7 +198,8 @@ export async function updateCustomer(user: CurrentUser, id: string, raw: unknown
   await connectDb();
   const existing = await loadOrgCustomer(user, id);
   const fields = storedFields(input);
-  await Customer.updateOne({ _id: existing._id, organizationId: user.organizationId }, { $set: fields });
+  const customFields = input.customFields !== undefined ? await validateCustomFieldValues(user.organizationId, "customer", input.customFields, (existing.customFields ?? {}) as Record<string, unknown>, "update") : undefined;
+  await Customer.updateOne({ _id: existing._id, organizationId: user.organizationId }, { $set: { ...fields, ...(customFields ? { customFields } : {}) } });
   const changed = (Object.keys(fields) as (keyof typeof fields)[]).filter((k) => JSON.stringify(fields[k]) !== JSON.stringify((existing as Record<string, unknown>)[k] ?? null));
   if (changed.length) {
     await recordActivity({ organizationId: user.organizationId, actorId: user.id, type: "customer.updated", customerId: existing._id, metadata: { fields: changed.filter((k) => k !== "searchName" && k !== "phoneDigits") } });
@@ -214,7 +221,9 @@ export async function setCustomerArchived(user: CurrentUser, id: string, archive
 export async function getCustomer(user: CurrentUser, id: string): Promise<CustomerDTO> {
   if (!user.permissions.has("customers:read")) throw Errors.forbidden();
   await connectDb();
-  return toCustomerDTO(await loadOrgCustomer(user, id));
+  const dto = toCustomerDTO(await loadOrgCustomer(user, id));
+  dto.customFields = visibleCustomFieldValues(await customFieldDefsFor(user.organizationId, "customer"), dto.customFields, "office");
+  return dto;
 }
 
 /** Builds an allowlisted filter for search text: phone digits, email, or name. */
@@ -238,18 +247,39 @@ export async function listCustomers(user: CurrentUser, query: z.infer<typeof cus
   if (query.tag) filter.tags = { $regex: `^${escapeRegex(query.tag)}$`, $options: "i" };
   const search = query.q ? searchFilter(query.q) : null;
   if (search) Object.assign(filter, search);
+  let warnings: string[] = [];
+  if (query.f) {
+    // Same allowlisted engine as reports; compiled server-side, never raw client operators.
+    const { conditionSchema, decodeDefinition, MAX_CONDITIONS } = await import("@/modules/reports/definition");
+    const { compileFilters, fieldRegistry } = await import("@/modules/reports/filters");
+    let conds;
+    try {
+      conds = z.array(conditionSchema).max(MAX_CONDITIONS).parse(decodeDefinition(query.f));
+    } catch {
+      throw Errors.validation("The advanced filters couldn't be read. Clear them and try again.");
+    }
+    const compiled = compileFilters(await fieldRegistry(user, "customer_list"), conds, true);
+    warnings = compiled.warnings;
+    if (compiled.customer.length) filter.$and = compiled.customer;
+  }
   const sortField = query.sort === "name" ? "searchName" : query.sort;
   const dir = query.dir === "asc" ? 1 : -1;
   const [total, rows] = await Promise.all([
     Customer.countDocuments(filter),
     Customer.find(filter)
-      .select("name firstName lastName companyName customerType email phone phoneDisplay relationshipStartedAt contactSource tags primaryCity archivedAt createdAt")
+      .select("name firstName lastName companyName customerType email phone phoneDisplay relationshipStartedAt contactSource tags primaryCity archivedAt createdAt customFields")
       .sort({ [sortField]: dir, _id: dir })
       .skip((query.page - 1) * query.pageSize)
       .limit(query.pageSize)
       .lean(),
   ]);
-  return { items: rows.map(toCustomerDTO), page: query.page, pageSize: query.pageSize, total, totalPages: Math.max(1, Math.ceil(total / query.pageSize)) };
+  const defs = await customFieldDefsFor(user.organizationId, "customer");
+  const items = rows.map((r) => {
+    const dto = toCustomerDTO(r);
+    dto.customFields = visibleCustomFieldValues(defs, dto.customFields, "office");
+    return dto;
+  });
+  return { items, warnings, page: query.page, pageSize: query.pageSize, total, totalPages: Math.max(1, Math.ceil(total / query.pageSize)) };
 }
 
 /** Autocomplete for booking creation: active customers only, enough detail to tell namesakes apart. */

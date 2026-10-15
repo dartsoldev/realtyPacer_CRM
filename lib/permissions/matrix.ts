@@ -29,12 +29,26 @@ export const PERMISSIONS = [
   "calendar:read",
   "cleaners:read",
   "cleaners:write",
-  "payments:read",
-  "payments:write",
+  /** View payments, refunds, balances, credit and money in reports. */
+  "financials:read",
+  /** Record received payments (manual entry). */
+  "payments:record",
+  /** Apply a customer's unallocated credit to finalized charges. */
+  "payments:allocate",
+  /** Record refunds processed outside RealtyPacer, and reverse mistaken receipts. */
+  "payments:refund",
+  /** Finalize booking charges (creates the amount owed) and set draft discounts. */
+  "billing:finalize",
+  /** Credit or add to finalized charges with a reason (append-only adjustments). */
+  "billing:adjust",
   "reports:read",
+  "reports:export",
+  /** Share saved views with the whole organization. */
+  "views:share",
   "customFields:manage",
   "loyalty:read",
-  "loyalty:write",
+  /** Grant, redeem, correct and reverse loyalty points. */
+  "loyalty:adjust",
   // Administration
   "users:read",
   "users:invite",
@@ -57,12 +71,18 @@ const OPERATIONAL: Permission[] = [
   "calendar:read",
   "cleaners:read",
   "cleaners:write",
-  "payments:read",
-  "payments:write",
+  "financials:read",
+  "payments:record",
+  "payments:allocate",
+  "payments:refund",
+  "billing:finalize",
+  "billing:adjust",
   "reports:read",
+  "reports:export",
+  "views:share",
   "customFields:manage",
   "loyalty:read",
-  "loyalty:write",
+  "loyalty:adjust",
   "pricing:read",
   "bookings:price_override",
   "activities:write",
@@ -88,11 +108,17 @@ export const STAFF_GRANTABLE: Permission[] = [
   "bookings:price_override",
   "cleaners:read",
   "cleaners:write",
-  "payments:read",
-  "payments:write",
+  "financials:read",
+  "payments:record",
+  "payments:allocate",
+  "payments:refund",
+  "billing:finalize",
+  "billing:adjust",
   "reports:read",
+  "reports:export",
+  "views:share",
   "loyalty:read",
-  "loyalty:write",
+  "loyalty:adjust",
 ];
 
 const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {

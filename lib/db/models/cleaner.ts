@@ -16,6 +16,7 @@ const cleanerSchema = new Schema(
     active: { type: Boolean, default: true },
     serviceAreas: { type: [String], default: [] },
     notes: { type: String, maxlength: 5000, default: "" },
+    customFields: { type: Schema.Types.Mixed, default: () => ({}) },
     linkedUserId: { type: Schema.Types.ObjectId, ref: "User", default: null },
     /**
      * Scheduling lock: every transaction that assigns this cleaner (or changes
@@ -26,7 +27,7 @@ const cleanerSchema = new Schema(
     archivedAt: { type: Date, default: null },
     archivedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
   },
-  { timestamps: true },
+  { timestamps: true, minimize: false },
 );
 
 cleanerSchema.index({ organizationId: 1, archivedAt: 1, active: 1, searchName: 1, _id: 1 });

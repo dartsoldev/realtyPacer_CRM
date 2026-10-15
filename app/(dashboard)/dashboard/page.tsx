@@ -14,8 +14,26 @@ import { formatDate } from "@/lib/domain/time";
 import { isDateKey } from "@/lib/domain/zoned-time";
 import { myJobs, operationsSummary } from "@/modules/bookings/service";
 import { getDashboardSummary } from "@/modules/dashboard/service";
+import { financialCards } from "@/modules/finance/dashboard";
+import { encodeDefinition } from "@/modules/reports/definition";
+import { formatCents } from "@/lib/domain/money";
 
 export const metadata: Metadata = { title: "Dashboard" };
+
+function reportLink(mode: "service" | "cash", month: { from: string; to: string }) {
+  const def = { mode, datePreset: "this_month", ...month, statuses: ["COMPLETED"], filters: { logic: "and", conditions: [] } };
+  return `/dashboard/reports?d=${encodeDefinition(def)}`;
+}
+
+function MoneyLink({ label, cents, currency, href, note }: { label: string; cents: number; currency: string; href: string; note: string }) {
+  return (
+    <Link href={href} className="block rounded-xl border border-line bg-surface p-5 shadow-sm transition-colors hover:border-brand/40">
+      <span className="text-sm font-medium text-muted">{label}</span>
+      <span className="mt-2 block text-2xl font-semibold tabular-nums">{formatCents(cents, currency)}</span>
+      <span className="mt-1 block text-xs text-muted">{note}</span>
+    </Link>
+  );
+}
 
 function StatLink({ label, value, icon: Icon, href, note }: { label: string; value: number; icon: LucideIcon; href: string; note?: string }) {
   return (
@@ -65,6 +83,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const firstName = user.name.split(" ")[0];
   const tz = user.organization.timezone;
 
+  const fin = can(user, "financials:read") && can(user, "pricing:read") && can(user, "reports:read") ? await financialCards(user) : null;
   const [ops, admin] = await Promise.all([can(user, "bookings:read") ? operationsSummary(user, { from, to }).catch((e) => (e?.code === "VALIDATION_ERROR" ? operationsSummary(user, {}) : Promise.reject(e))) : null, getDashboardSummary(user)]);
 
   return (
@@ -122,8 +141,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <StatLink label="Service items completed" value={ops.completed.serviceItems} icon={CheckCircle2} href={`/dashboard/bookings?status=COMPLETED&from=${ops.completed.from}&to=${ops.completed.to}`} note="Sum of item quantities" />
               <StatLink label="Unique customers served" value={ops.completed.uniqueCustomers} icon={CheckCircle2} href={`/dashboard/bookings?status=COMPLETED&from=${ops.completed.from}&to=${ops.completed.to}`} note="Distinct customers" />
             </div>
-            <p className="text-xs text-muted">Financial figures appear in phase 3, once payments are recorded.</p>
           </section>
+
+          {fin ? (
+            <section aria-labelledby="fin-h" className="mt-8 space-y-3">
+              <h2 id="fin-h" className="text-sm font-semibold uppercase tracking-wide text-muted">Money ({fin.currency})</h2>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <MoneyLink label="Net cash received this month" cents={fin.cashThisMonth.netCents} currency={fin.currency} href={reportLink("cash", fin.month)} note={`${formatCents(fin.cashThisMonth.receiptsCents, fin.currency)} received − ${formatCents(fin.cashThisMonth.refundsCents, fin.currency)} refunded · ${fin.cashThisMonth.basis}`} />
+                <MoneyLink label="Outstanding now" cents={fin.outstandingNow.cents} currency={fin.currency} href={`/dashboard/customers?f=${encodeDefinition([{ field: "customerOutstanding", op: "gt", value: 0 }])}`} note={`${fin.outstandingNow.bookings} bookings · ${fin.outstandingNow.basis}`} />
+                <MoneyLink label="Unapplied customer credit" cents={fin.creditNow.cents} currency={fin.currency} href="/dashboard/payments?unallocated=1" note={fin.creditNow.basis} />
+                <MoneyLink label="Completed work charged this month" cents={fin.completedChargedThisMonth.cents} currency={fin.currency} href={reportLink("service", fin.month)} note={fin.completedChargedThisMonth.basis} />
+              </div>
+            </section>
+          ) : null}
 
           <div className="mt-8 grid gap-6 xl:grid-cols-2">
             <Card>

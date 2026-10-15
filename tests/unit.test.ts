@@ -21,15 +21,15 @@ describe("permission matrix", () => {
     expect(assignableRoles("STAFF")).toEqual([]);
   });
   it("only applies allowlisted STAFF grants", () => {
-    const p = permissionsFor("STAFF", ["payments:read", "users:manage", "audit:read"]);
-    expect(p.has("payments:read")).toBe(true);
+    const p = permissionsFor("STAFF", ["financials:read", "users:manage", "audit:read"]);
+    expect(p.has("financials:read")).toBe(true);
     expect(p.has("users:manage")).toBe(false);
     expect(p.has("audit:read")).toBe(false);
     expect(permissionsFor("ADMIN", ["audit:read"]).has("audit:read")).toBe(false);
   });
   it("keeps CLEANER away from customer lists and finance", () => {
     const p = permissionsFor("CLEANER");
-    for (const perm of ["customers:read", "payments:read", "reports:read", "bookings:read"] as const) expect(p.has(perm)).toBe(false);
+    for (const perm of ["customers:read", "financials:read", "reports:read", "reports:export", "loyalty:read", "bookings:read"] as const) expect(p.has(perm)).toBe(false);
     expect(p.has("bookings:read_assigned")).toBe(true);
   });
 });

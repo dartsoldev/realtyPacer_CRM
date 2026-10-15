@@ -58,6 +58,14 @@ export const ACTIVITY_TYPES = [
   "booking.completed",
   "booking.cancelled",
   "booking.reopened",
+  "charges.discount_set",
+  "charges.finalized",
+  "charges.adjusted",
+  "payment.recorded",
+  "credit.applied",
+  "payment.refunded",
+  "payment.reversed",
+  "points.changed",
   "note",
   "call",
 ] as const;
@@ -79,17 +87,57 @@ export const MAX_UNIT_PRICE_CENTS = 10_000_000; // $100,000.00
 export const MAX_BOOKING_MINUTES = 24 * 60;
 export const MAX_LINE_ITEMS = 50;
 
-export const PAYMENT_METHODS = ["cash", "card", "e_transfer", "cheque", "other"] as const;
+/** How a receipt was received. Manual records only — no card data is ever collected. */
+export const PAYMENT_METHODS = ["cash", "bank_transfer", "e_transfer", "external_card", "cheque", "other"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  cash: "Cash",
+  bank_transfer: "Bank transfer",
+  e_transfer: "Interac e-Transfer",
+  external_card: "Card (processed outside RealtyPacer)",
+  cheque: "Cheque",
+  other: "Other",
+};
 
-export const PAYMENT_STATUSES = ["pending", "completed", "failed", "refunded", "voided"] as const;
+/** POSTED receipts count; REVERSED ones were recorded by mistake and are kept for history only. */
+export const PAYMENT_STATUSES = ["POSTED", "REVERSED"] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
-export const CUSTOM_FIELD_ENTITIES = ["customer", "booking", "service_address"] as const;
+/** Billing state, separate from job status. Only FINALIZED bookings create an amount owed. */
+export const BILLING_STATES = ["DRAFT", "FINALIZED"] as const;
+export type BillingState = (typeof BILLING_STATES)[number];
+
+export const DISCOUNT_TYPES = ["none", "fixed", "percent"] as const;
+export type DiscountType = (typeof DISCOUNT_TYPES)[number];
+
+export const LOYALTY_ENTRY_TYPES = ["grant", "redeem", "correction", "reversal"] as const;
+export type LoyaltyEntryType = (typeof LOYALTY_ENTRY_TYPES)[number];
+export const LOYALTY_ENTRY_LABELS: Record<LoyaltyEntryType, string> = { grant: "Points granted", redeem: "Points redeemed", correction: "Correction", reversal: "Reversal" };
+
+/** Upper bound for one receipt / refund / adjustment ($1,000,000.00). */
+export const MAX_MONEY_CENTS = 100_000_000;
+export const MAX_POINTS_CHANGE = 1_000_000;
+
+export const CUSTOM_FIELD_ENTITIES = ["customer", "booking", "cleaner"] as const;
 export type CustomFieldEntity = (typeof CUSTOM_FIELD_ENTITIES)[number];
 
-export const CUSTOM_FIELD_TYPES = ["text", "number", "date", "boolean", "select", "multi_select"] as const;
+export const CUSTOM_FIELD_TYPES = ["short_text", "long_text", "number", "date", "boolean", "single_select", "multi_select", "url"] as const;
 export type CustomFieldType = (typeof CUSTOM_FIELD_TYPES)[number];
+export const CUSTOM_FIELD_TYPE_LABELS: Record<CustomFieldType, string> = {
+  short_text: "Short text",
+  long_text: "Long text",
+  number: "Number",
+  date: "Date",
+  boolean: "Yes / no",
+  single_select: "Single select",
+  multi_select: "Multi-select",
+  url: "Web link (URL)",
+};
+/** Types that may be used as report filters (long text and URLs never are). */
+export const FILTERABLE_CUSTOM_FIELD_TYPES: CustomFieldType[] = ["short_text", "number", "date", "boolean", "single_select", "multi_select"];
+/** office = office staff only; assigned_cleaners = also shown to the cleaners assigned to a booking. */
+export const CUSTOM_FIELD_VISIBILITIES = ["office", "assigned_cleaners"] as const;
+export type CustomFieldVisibility = (typeof CUSTOM_FIELD_VISIBILITIES)[number];
 
 export const AUTH_TOKEN_PURPOSES = ["invitation", "email_verification", "password_reset"] as const;
 export type AuthTokenPurpose = (typeof AUTH_TOKEN_PURPOSES)[number];

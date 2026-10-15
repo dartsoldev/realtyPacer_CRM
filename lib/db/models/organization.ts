@@ -49,6 +49,22 @@ const organizationSchema = new Schema(
     contact: { type: contactSchema, default: () => ({}) },
     branding: { type: brandingSchema, default: () => ({}) },
     terminology: { type: terminologySchema, default: () => ({}) },
+    /**
+     * Sales tax: disabled until an administrator configures it explicitly.
+     * RealtyPacer makes no jurisdictional tax decisions; the configured rate is
+     * snapshotted onto each booking when its charges are finalized.
+     */
+    tax: {
+      type: new Schema(
+        {
+          enabled: { type: Boolean, default: false },
+          rateBasisPoints: { type: Number, default: 0, min: 0, max: 10_000 },
+          label: { type: String, trim: true, maxlength: 40, default: "" },
+        },
+        { _id: false },
+      ),
+      default: () => ({}),
+    },
     scheduling: {
       type: new Schema(
         {

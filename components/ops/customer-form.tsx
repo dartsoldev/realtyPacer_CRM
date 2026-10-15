@@ -7,6 +7,8 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/field";
 import { apiRequest } from "@/lib/client/api";
+import { CustomFieldInputs, changedCustomFields, useCustomFieldDefs, type CustomFieldDraft } from "@/components/custom-fields/inputs";
+import type { CustomFieldDef } from "@/modules/custom-fields/service";
 import { useUnsavedChangesWarning } from "@/lib/client/hooks";
 import { CONTACT_SOURCE_LABELS, CONTACT_SOURCES, CUSTOMER_TYPE_LABELS, CUSTOMER_TYPES, type ContactSource, type CustomerType } from "@/lib/domain/constants";
 import { createCustomerSchema, updateCustomerSchema } from "@/modules/customers/schemas";
@@ -25,6 +27,7 @@ export type CustomerFormInitial = {
   contactSource: ContactSource | "";
   tags: string[];
   notes: string;
+  customFields?: Record<string, unknown>;
 };
 
 export const EMPTY_CUSTOMER: CustomerFormInitial = {
@@ -59,8 +62,10 @@ const PHONE_COUNTRIES = [
  * included and possible duplicates are shown before saving. `onCreated` lets
  * callers (e.g. the booking form) keep the user in place.
  */
-export function CustomerForm({ mode, initial = EMPTY_CUSTOMER, onCreated, onCancel }: { mode: "create" | "edit"; initial?: CustomerFormInitial; onCreated?: (c: CreatedCustomer) => void; onCancel?: () => void }) {
+export function CustomerForm({ mode, initial = EMPTY_CUSTOMER, onCreated, onCancel, customFieldDefs }: { mode: "create" | "edit"; initial?: CustomerFormInitial; onCreated?: (c: CreatedCustomer) => void; onCancel?: () => void; customFieldDefs?: CustomFieldDef[] }) {
   const router = useRouter();
+  const cfDefs = useCustomFieldDefs("customer", customFieldDefs);
+  const [cf, setCf] = useState<CustomFieldDraft>(initial.customFields ?? {});
   const [v, setV] = useState<CustomerFormInitial>(initial);
   const [phoneCountry, setPhoneCountry] = useState("CA");
   const [tagsText, setTagsText] = useState(initial.tags.join(", "));
@@ -93,8 +98,9 @@ export function CustomerForm({ mode, initial = EMPTY_CUSTOMER, onCreated, onCanc
       tags: tagsText.split(",").map((t) => t.trim()).filter(Boolean),
       notes: v.notes,
     };
-    return mode === "create" && withAddress ? { ...base, primaryAddress: addressPayload({ ...address, isPrimary: true }) } : base;
-  }, [v, phoneCountry, tagsText, mode, withAddress, address]);
+    const withCf = { ...base, customFields: changedCustomFields(cfDefs, initial.customFields ?? {}, cf) };
+    return mode === "create" && withAddress ? { ...withCf, primaryAddress: addressPayload({ ...address, isPrimary: true }) } : withCf;
+  }, [v, phoneCountry, tagsText, mode, withAddress, address, cf, cfDefs, initial.customFields]);
 
   async function submit(confirmDuplicate = false) {
     setFailure(null);
@@ -270,6 +276,8 @@ export function CustomerForm({ mode, initial = EMPTY_CUSTOMER, onCreated, onCanc
           </Field>
         </div>
       </fieldset>
+
+      <CustomFieldInputs defs={cfDefs} values={cf} errors={errors} onChange={(k, val) => { setCf((prev) => ({ ...prev, [k]: val })); setDirty(true); }} />
 
       {mode === "create" ? (
         <fieldset className="space-y-3">

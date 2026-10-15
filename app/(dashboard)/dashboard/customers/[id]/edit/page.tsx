@@ -8,6 +8,7 @@ import { can } from "@/lib/auth/current-user";
 import { requirePageUser } from "@/lib/auth/page-guard";
 import { AppError } from "@/lib/http/errors";
 import { getCustomer } from "@/modules/customers/service";
+import { customFieldDefsFor } from "@/modules/custom-fields/service";
 
 export const metadata: Metadata = { title: "Edit customer" };
 
@@ -22,6 +23,7 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
     if (err instanceof AppError && err.status === 404) notFound();
     throw err;
   }
+  const cfDefs = await customFieldDefsFor(user.organizationId, "customer");
   return (
     <>
       <PageHeader
@@ -45,7 +47,9 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
             contactSource: c.contactSource ?? "",
             tags: c.tags,
             notes: c.notes,
+            customFields: c.customFields,
           }}
+          customFieldDefs={cfDefs}
         />
       </Card>
     </>

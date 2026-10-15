@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CalendarPlus, ClipboardList, CreditCard, Pencil } from "lucide-react";
+import { CalendarPlus, ClipboardList, Pencil } from "lucide-react";
+import { RecordPaymentButton } from "@/components/finance/payment-dialogs";
+import { LoyaltyEntryButton, ReverseLoyaltyButton } from "@/components/finance/loyalty-actions";
+import { BillingStateBadge, PaymentStatusBadge } from "@/components/finance/status";
+import { CustomFieldValues } from "@/components/custom-fields/values";
 import { Types } from "mongoose";
 import { ActivityFeed } from "@/components/ops/activity-feed";
 import { AddressManager } from "@/components/ops/address-manager";
@@ -25,6 +29,11 @@ import { todayKey } from "@/lib/domain/zoned-time";
 import { AppError } from "@/lib/http/errors";
 import { listAddresses } from "@/modules/customers/addresses";
 import { customerHistory, customerMetrics, getCustomer } from "@/modules/customers/service";
+import { customFieldDefsFor } from "@/modules/custom-fields/service";
+import { openCharges } from "@/modules/finance/payments";
+import { customerFinanceHistory, customerFinancialSummary } from "@/modules/finance/summary";
+import { loyaltyHistory } from "@/modules/loyalty/service";
+import { LOYALTY_ENTRY_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/domain/constants";
 
 export const metadata: Metadata = { title: "Customer" };
 
@@ -33,7 +42,8 @@ const TABS = [
   { key: "addresses", label: "Service addresses" },
   { key: "history", label: "Bookings & service history" },
   { key: "activity", label: "Notes & activity" },
-  { key: "payments", label: "Payments" },
+  { key: "finance", label: "Finance" },
+  { key: "loyalty", label: "Loyalty points" },
 ] as const;
 
 type SP = Promise<Record<string, string | string[] | undefined>>;
@@ -44,7 +54,8 @@ export default async function CustomerProfilePage({ params, searchParams }: { pa
   // Cleaners following a booking link land here: the full profile is office-only.
   if (!can(user, "customers:read")) return <AccessDenied />;
   const sp = await searchParams;
-  const tab = (TABS.find((t) => t.key === sp.tab)?.key ?? "overview") as (typeof TABS)[number]["key"];
+  const visibleTabs = TABS.filter((t) => (t.key === "finance" ? can(user, "financials:read") : t.key === "loyalty" ? can(user, "loyalty:read") : true));
+  const tab = (visibleTabs.find((t) => t.key === sp.tab)?.key ?? "overview") as (typeof TABS)[number]["key"];
   const page = Math.max(1, Math.min(1000, Number(sp.page) || 1));
 
   let customer;
@@ -63,6 +74,12 @@ export default async function CustomerProfilePage({ params, searchParams }: { pa
   const primary = addresses.find((a) => a.isPrimary) ?? null;
   const history = tab === "history" || tab === "overview" ? (canBookings ? await customerHistory(user, customer.id, tab === "history" ? page : 1, tab === "history" ? 20 : 5) : null) : null;
   const canWrite = can(user, "customers:write");
+  const currency = user.organization.currency;
+  const [finance, loyalty, cfDefs] = await Promise.all([
+    tab === "finance" ? Promise.all([customerFinancialSummary(user, customer.id), customerFinanceHistory(user, customer.id), openCharges(user, customer.id)]) : null,
+    tab === "loyalty" ? loyaltyHistory(user, customer.id, page) : null,
+    tab === "overview" ? customFieldDefsFor(user.organizationId, "customer") : null,
+  ]);
 
   return (
     <>
@@ -95,6 +112,7 @@ export default async function CustomerProfilePage({ params, searchParams }: { pa
             ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
+            {can(user, "payments:record") ? <RecordPaymentButton customer={{ id: customer.id, name: customer.name }} currency={currency} timezone={tz} variant="secondary" /> : null}
             {can(user, "bookings:write") && !customer.archived ? (
               <LinkButton href={`/dashboard/bookings/new?customerId=${customer.id}`}>
                 <CalendarPlus className="size-4" aria-hidden /> Create booking
@@ -134,7 +152,7 @@ export default async function CustomerProfilePage({ params, searchParams }: { pa
       </div>
 
       <nav aria-label="Customer sections" className="mb-4 flex gap-1 overflow-x-auto border-b border-line">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <Link
             key={t.key}
             href={`/dashboard/customers/${customer.id}${t.key === "overview" ? "" : `?tab=${t.key}`}`}
@@ -196,6 +214,12 @@ export default async function CustomerProfilePage({ params, searchParams }: { pa
               <p className="whitespace-pre-wrap px-5 py-4 text-sm">{customer.notes || <span className="text-muted">No notes.</span>}</p>
             </Card>
           </div>
+          {cfDefs && cfDefs.length ? (
+            <Card>
+              <CardHeader title="Additional details" description="Custom fields set by your organization" />
+              <CustomFieldValues defs={cfDefs} values={customer.customFields} timezone={tz} />
+            </Card>
+          ) : null}
         </div>
       ) : null}
 
@@ -246,13 +270,173 @@ export default async function CustomerProfilePage({ params, searchParams }: { pa
         </Card>
       ) : null}
 
-      {tab === "payments" ? (
+      {tab === "finance" && finance ? <FinanceTab customerId={customer.id} data={finance} currency={currency} timezone={tz} /> : null}
+
+      {tab === "loyalty" && loyalty ? (
         <Card>
-          <EmptyState icon={CreditCard} title="Payments aren’t recorded yet" badge={<Badge tone="info">Coming in phase 3</Badge>}>
-            Total paid and outstanding balance will appear once payments are recorded and allocated to booking services. Booking prices are not treated as money received.
-          </EmptyState>
+          <CardHeader
+            title={`Points balance: ${loyalty.balance}`}
+            description="Every change is a ledger entry with a reason. Entries are reversed, never edited."
+            actions={can(user, "loyalty:adjust") ? <LoyaltyEntryButton customerId={customer.id} balance={loyalty.balance} /> : null}
+          />
+          {loyalty.items.length === 0 ? (
+            <p className="px-5 py-6 text-sm text-muted">No points activity yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[40rem] text-sm">
+                <thead className="bg-canvas text-left text-xs text-muted">
+                  <tr>
+                    <th scope="col" className="px-4 py-2 font-medium">Date</th>
+                    <th scope="col" className="px-4 py-2 font-medium">Entry</th>
+                    <th scope="col" className="px-4 py-2 text-right font-medium">Change</th>
+                    <th scope="col" className="px-4 py-2 text-right font-medium">Balance after</th>
+                    <th scope="col" className="px-4 py-2"><span className="sr-only">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {loyalty.items.map((e) => (
+                    <tr key={e.id}>
+                      <td className="whitespace-nowrap px-4 py-2">{formatDateTime(e.occurredAt, tz)}</td>
+                      <td className="px-4 py-2">
+                        <span className="font-medium">{LOYALTY_ENTRY_LABELS[e.type]}</span>
+                        {e.reversed ? <Badge tone="slate" className="ml-2">Reversed</Badge> : null}
+                        <span className="block text-muted">{e.reason}{e.by ? ` · ${e.by}` : ""}</span>
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums">{e.pointsChange > 0 ? `+${e.pointsChange}` : e.pointsChange}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">{e.balanceAfter}</td>
+                      <td className="px-4 py-2 text-right">{can(user, "loyalty:adjust") && !e.reversed && e.type !== "reversal" ? <ReverseLoyaltyButton customerId={customer.id} entryId={e.id} /> : null}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <Pagination page={loyalty.page} totalPages={loyalty.totalPages} total={loyalty.total} basePath={`/dashboard/customers/${customer.id}`} params={{ tab: "loyalty" }} />
         </Card>
       ) : null}
     </>
+  );
+}
+
+type FinanceData = [Awaited<ReturnType<typeof customerFinancialSummary>>, Awaited<ReturnType<typeof customerFinanceHistory>>, Awaited<ReturnType<typeof openCharges>>];
+
+function FinanceTab({ customerId, data: [summary, history, open], currency, timezone }: { customerId: string; data: FinanceData; currency: string; timezone: string }) {
+  const money = (c: number) => formatCents(c, currency);
+  const cards: [string, string, string][] = [
+    ["Outstanding now", money(summary.outstandingCents), "Finalized charges after adjustments, minus what has been applied"],
+    ["Unapplied credit", money(summary.unallocatedCreditCents), "Received but not yet applied to a charge"],
+    ["Net received (lifetime)", money(summary.netReceivedCents), `${money(summary.grossReceiptsCents)} received − ${money(summary.refundsCents)} refunded`],
+    ["Charges (lifetime)", money(summary.chargesAfterAdjustmentsCents), `${money(summary.finalizedChargesCents)} finalized ${summary.adjustmentsCents < 0 ? "−" : "+"} ${money(Math.abs(summary.adjustmentsCents))} adjustments`],
+    ["Draft estimates", money(summary.draftEstimateCents), "Bookings not yet finalized. Not owed."],
+    ["Last payment", summary.lastPaymentAt ? formatDate(summary.lastPaymentAt, timezone) : "—", "Most recent posted receipt"],
+  ];
+  return (
+    <div className="space-y-6">
+      <section aria-labelledby="fin-h">
+        <h2 id="fin-h" className="sr-only">Financial summary</h2>
+        <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {cards.map(([label, value, hint]) => (
+            <div key={label} className="rounded-xl border border-line bg-surface p-4">
+              <dt className="text-xs font-medium text-muted">{label}</dt>
+              <dd className="mt-1 text-2xl font-semibold tabular-nums">{value}</dd>
+              <dd className="mt-1 text-xs text-muted">{hint}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-2 text-xs text-muted">Lifetime figures are computed from receipts, refunds, finalized charges and adjustments — not from booking prices.</p>
+      </section>
+
+      <Card>
+        <CardHeader title="Still owed" description="Finalized charges with an unpaid balance, oldest first" />
+        {open.length === 0 ? (
+          <p className="px-5 py-4 text-sm text-muted">Nothing is owed.</p>
+        ) : (
+          <ul className="divide-y divide-line">
+            {open.map((b) => (
+              <li key={b.bookingId} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-sm">
+                <div>
+                  <Link href={`/dashboard/bookings/${b.bookingId}`} className="font-medium underline-offset-4 hover:underline">{b.reference}</Link> · {formatDate(b.serviceDate, timezone)}
+                  <p className="text-muted">{b.lines.filter((l) => l.balanceCents > 0).map((l) => `${l.name} ${money(l.balanceCents)}`).join(" · ")}</p>
+                </div>
+                <span className="font-semibold tabular-nums">{money(b.balanceCents)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader title="Payments and refunds" description="Most recent 100" actions={<Link href={`/dashboard/payments?customerId=${customerId}`} className="text-sm font-medium text-brand underline-offset-4 hover:underline">Open in Payments</Link>} />
+        {history.transactions.length === 0 ? (
+          <p className="px-5 py-4 text-sm text-muted">No payments recorded.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[40rem] text-sm">
+              <thead className="bg-canvas text-left text-xs text-muted">
+                <tr>
+                  <th scope="col" className="px-4 py-2 font-medium">Date</th>
+                  <th scope="col" className="px-4 py-2 font-medium">Entry</th>
+                  <th scope="col" className="px-4 py-2 text-right font-medium">Amount</th>
+                  <th scope="col" className="px-4 py-2 text-right font-medium">Credit left</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {history.transactions.map((t) => (
+                  <tr key={`${t.kind}-${t.id}`} className={t.status === "REVERSED" ? "text-muted" : undefined}>
+                    <td className="whitespace-nowrap px-4 py-2">{formatDateTime(t.at, timezone)}</td>
+                    <td className="px-4 py-2">
+                      <Link href={`/dashboard/payments/${t.paymentId}`} className="font-medium underline-offset-4 hover:underline">
+                        {t.kind === "refund" ? `Refund on ${t.receiptNumber}` : t.receiptNumber}
+                      </Link>
+                      {t.kind === "receipt" && t.status === "REVERSED" ? <span className="ml-2"><PaymentStatusBadge status="REVERSED" refundState="none" /></span> : null}
+                      <span className="block text-muted">{[t.method ? PAYMENT_METHOD_LABELS[t.method] : "", t.reason].filter(Boolean).join(" · ")}</span>
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums">{t.kind === "refund" ? `−${money(t.amountCents)}` : money(t.amountCents)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{t.unallocatedCents !== null && t.status === "POSTED" ? money(t.unallocatedCents) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader title="Charges by booking" description="Most recent 100. Draft amounts are estimates and are not owed." />
+        {history.charges.length === 0 ? (
+          <p className="px-5 py-4 text-sm text-muted">No bookings.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[48rem] text-sm">
+              <thead className="bg-canvas text-left text-xs text-muted">
+                <tr>
+                  <th scope="col" className="px-4 py-2 font-medium">Booking</th>
+                  <th scope="col" className="px-4 py-2 font-medium">Services</th>
+                  <th scope="col" className="px-4 py-2 font-medium">Billing</th>
+                  <th scope="col" className="px-4 py-2 text-right font-medium">Charged</th>
+                  <th scope="col" className="px-4 py-2 text-right font-medium">Paid</th>
+                  <th scope="col" className="px-4 py-2 text-right font-medium">Balance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {history.charges.map((c) => (
+                  <tr key={c.bookingId}>
+                    <td className="px-4 py-2">
+                      <Link href={`/dashboard/bookings/${c.bookingId}`} className="font-medium underline-offset-4 hover:underline">{c.reference}</Link>
+                      <span className="block text-xs text-muted">{formatDate(c.serviceDate, timezone)}{c.city ? ` · ${c.city}` : ""}</span>
+                    </td>
+                    <td className="px-4 py-2">{c.services}</td>
+                    <td className="px-4 py-2"><BillingStateBadge state={c.billingState as "DRAFT" | "FINALIZED"} /></td>
+                    <td className="px-4 py-2 text-right tabular-nums">{c.chargedCents !== null ? money(c.chargedCents) : <span className="text-muted">est. {money(c.estimateCents ?? 0)}</span>}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{money(c.paidCents)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{c.balanceCents !== null ? money(c.balanceCents) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }

@@ -43,11 +43,13 @@ export function Field({ label, error, hint, required, children }: FieldProps) {
   );
 }
 
-export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }>(
-  function Input({ className, invalid, ...props }, ref) {
+/** `describedBy` lets callers spread Field's render-prop ids straight onto a control. */
+export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean; describedBy?: string }>(
+  function Input({ className, invalid, describedBy, ...props }, ref) {
     return (
       <input
         ref={ref}
+        aria-describedby={describedBy}
         aria-invalid={invalid || undefined}
         className={cn(control, "h-11", invalid ? "border-danger" : "border-line", className)}
         {...props}
@@ -56,11 +58,12 @@ export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTML
   },
 );
 
-export const Select = forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement> & { invalid?: boolean }>(
-  function Select({ className, invalid, ...props }, ref) {
+export const Select = forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement> & { invalid?: boolean; describedBy?: string }>(
+  function Select({ className, invalid, describedBy, ...props }, ref) {
     return (
       <select
         ref={ref}
+        aria-describedby={describedBy}
         aria-invalid={invalid || undefined}
         className={cn(control, "h-11 pr-8", invalid ? "border-danger" : "border-line", className)}
         {...props}

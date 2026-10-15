@@ -20,6 +20,8 @@ import { AppError, Errors } from "@/lib/http/errors";
 import { recordActivity } from "@/modules/activities/service";
 import { recordAudit } from "@/modules/audit/service";
 import { cleanerForUser } from "@/modules/cleaners/service";
+import { customFieldDefsFor, validateCustomFieldValues, visibleCustomFieldValues } from "@/modules/custom-fields/service";
+import { draftAmountsSet, orgTax } from "@/modules/finance/charges";
 import {
   bookingListQuery,
   calendarQuery,
@@ -291,6 +293,9 @@ export type BookingDTO = {
   lineItems: { id: string; serviceId: string; name: string; unitLabel: string; quantity: number; durationMinutes: number; unitPriceCents: number | null; lineTotalCents: number | null; catalogUnitPriceCents: number | null }[];
   subtotalCents: number | null;
   currency: string;
+  /** Billing data: amounts need pricing:read; paid/balance additionally need financials:read. Null for cleaners. */
+  billing: BookingBilling | null;
+  customFields: Record<string, unknown>;
   cleaners: { id: string; name: string; phone: string | null; phoneDisplay: string | null; active: boolean }[];
   instructions: string;
   officeNotes: string | null;
@@ -301,6 +306,52 @@ export type BookingDTO = {
   allowedActions: BookingAction[];
   editable: string[];
 };
+
+export type BookingBilling = {
+  state: "DRAFT" | "FINALIZED";
+  discount: { type: "none" | "fixed" | "percent"; amountCents: number; basisPoints: number };
+  tax: { enabled: boolean; rateBasisPoints: number; label: string };
+  grossCents: number;
+  discountCents: number;
+  netCents: number;
+  taxCents: number;
+  chargedCents: number;
+  adjustmentsCents: number;
+  paidCents: number | null;
+  balanceCents: number | null;
+  finalizedAt: string | null;
+  lines: { lineItemId: string; name: string; grossCents: number; discountCents: number; netCents: number; taxCents: number; chargedCents: number; adjustmentCents: number; paidCents: number | null; balanceCents: number | null }[];
+};
+
+function billingOf(b: BookingDoc, canMoney: boolean): BookingBilling {
+  const finalized = b.billingState === "FINALIZED";
+  return {
+    state: (b.billingState ?? "DRAFT") as "DRAFT" | "FINALIZED",
+    discount: { type: (b.discount?.type ?? "none") as "none" | "fixed" | "percent", amountCents: b.discount?.amountCents ?? 0, basisPoints: b.discount?.basisPoints ?? 0 },
+    tax: { enabled: Boolean(b.tax?.enabled), rateBasisPoints: b.tax?.rateBasisPoints ?? 0, label: b.tax?.label ?? "" },
+    grossCents: b.subtotalCents,
+    discountCents: b.discountCents ?? 0,
+    netCents: b.netCents ?? 0,
+    taxCents: b.taxCents ?? 0,
+    chargedCents: b.chargedCents ?? 0,
+    adjustmentsCents: b.adjustmentsCents ?? 0,
+    paidCents: canMoney ? (b.allocatedCents ?? 0) : null,
+    balanceCents: canMoney && finalized ? (b.chargedCents ?? 0) + (b.adjustmentsCents ?? 0) - (b.allocatedCents ?? 0) : null,
+    finalizedAt: b.finalizedAt ? b.finalizedAt.toISOString() : null,
+    lines: b.lineItems.map((l) => ({
+      lineItemId: String(l._id),
+      name: l.name,
+      grossCents: l.lineTotalCents,
+      discountCents: l.discountCents ?? 0,
+      netCents: l.netCents ?? 0,
+      taxCents: l.taxCents ?? 0,
+      chargedCents: l.chargedCents ?? 0,
+      adjustmentCents: l.adjustmentCents ?? 0,
+      paidCents: canMoney ? (l.allocatedCents ?? 0) : null,
+      balanceCents: canMoney && finalized ? (l.chargedCents ?? 0) + (l.adjustmentCents ?? 0) - (l.allocatedCents ?? 0) : null,
+    })),
+  };
+}
 
 function allowedActionsFor(viewer: Viewer, b: { status: string; assignedCleanerIds: Types.ObjectId[] }): BookingAction[] {
   const p = viewer.user.permissions;
@@ -327,7 +378,9 @@ async function shapeBookings(viewer: Viewer, rows: BookingDoc[]): Promise<Bookin
   const cleanerById = new Map(cleaners.map((c) => [String(c._id), c]));
   const p = viewer.user.permissions;
   const canPrice = viewer.office && p.has("pricing:read");
+  const canMoney = canPrice && p.has("financials:read");
   const profileAccessible = viewer.office && p.has("customers:read");
+  const cfDefs = await customFieldDefsFor(viewer.user.organizationId, "booking");
 
   return rows.map((b) => {
     const tz = b.timezone;
@@ -382,6 +435,8 @@ async function shapeBookings(viewer: Viewer, rows: BookingDoc[]): Promise<Bookin
       })),
       subtotalCents: canPrice ? b.subtotalCents : null,
       currency: b.currency,
+      billing: canPrice ? billingOf(b, canMoney) : null,
+      customFields: visibleCustomFieldValues(cfDefs, b.customFields, viewer.office ? "office" : "assigned_cleaners"),
       cleaners: b.assignedCleanerIds.map((id) => {
         const x = cleanerById.get(String(id));
         return { id: String(id), name: x?.name ?? "Former cleaner", phone: x?.phone ?? null, phoneDisplay: x?.phoneDisplay ?? x?.phone ?? null, active: Boolean(x?.active && !x.archivedAt) };
@@ -393,7 +448,8 @@ async function shapeBookings(viewer: Viewer, rows: BookingDoc[]): Promise<Bookin
       cancelledAt: b.cancelledAt ? b.cancelledAt.toISOString() : null,
       cancellationReason: viewer.office ? (b.cancellationReason ?? "") : null,
       allowedActions: allowedActionsFor(viewer, b),
-      editable: viewer.office && p.has("bookings:write") ? EDITABLE_FIELDS[b.status as BookingStatus] : [],
+      // Finalized charges are locked: corrections go through charge adjustments.
+      editable: viewer.office && p.has("bookings:write") ? EDITABLE_FIELDS[b.status as BookingStatus].filter((f) => !(f === "lineItems" && b.billingState === "FINALIZED")) : [],
     };
   });
 }
@@ -497,6 +553,10 @@ export async function createBooking(user: CurrentUser, raw: unknown): Promise<{ 
             lineItems: lines,
             currency: settings.currency,
             subtotalCents: 0, // recomputed in pre-validate
+            billingState: "DRAFT",
+            // Draft amounts preview the organization's current tax setting; frozen only at finalization.
+            tax: await orgTax(orgId),
+            customFields: await validateCustomFieldValues(orgId, "booking", input.customFields, {}, "create"),
             completedAt: input.status === "COMPLETED" ? end : null,
             idempotencyKey: input.idempotencyKey,
             createdBy: user.id,
@@ -601,8 +661,14 @@ export async function updateBooking(user: CurrentUser, id: string, raw: unknown)
         const allocated = await Payment.exists({ organizationId: orgId, "allocations.lineItemId": { $in: removed.map((r) => r._id) } }).session(session);
         if (allocated) throw new AppError(409, "LINE_ITEM_HAS_PAYMENTS", "A removed service item already has payments allocated to it. Adjust the payment first.");
       }
-      set.lineItems = lines;
+      if (b.billingState === "FINALIZED") throw new AppError(409, "FINALIZED_CHARGES", "Charges are finalized and can't be edited. Use a charge adjustment (credit or extra charge) instead.");
+      // Draft amounts: recompute discount allocation and tax preview for the new lines.
+      const discount = { type: (b.discount?.type ?? "none") as "none" | "fixed" | "percent", amountCents: b.discount?.amountCents ?? 0, basisPoints: b.discount?.basisPoints ?? 0 };
+      const tax = await orgTax(orgId);
+      const { amounts, totals } = draftAmountsSet(lines, discount, tax);
+      set.lineItems = lines.map((l, i) => ({ ...l, ...amounts[i], adjustmentCents: 0, allocatedCents: 0 }));
       set.subtotalCents = lines.reduce((s, l) => s + l.lineTotalCents, 0);
+      Object.assign(set, { tax, discountCents: totals.discountCents, netCents: totals.netCents, taxCents: totals.taxCents, chargedCents: totals.chargedCents });
       activities.push({ organizationId: orgId, actorId: user.id, type: "booking.updated", customerId: b.customerId, bookingId: b._id, metadata: { fields: ["services"] } });
       if (overrides.length) {
         await recordAudit({ organizationId: orgId, actorId: user.id, action: "booking.price_overridden", entityType: "booking", entityId: b._id, metadata: { reference: b.reference, items: overrides.map((o) => `${o.name}: ${o.from} → ${o.to}`) } });
@@ -636,9 +702,12 @@ export async function updateBooking(user: CurrentUser, id: string, raw: unknown)
       await lockAndCheckCleaners(session, orgId, cleanerIds, start, end, settings.bufferMinutes, b._id, mustBeActive);
     }
 
+    if (input.customFields !== undefined) {
+      set.customFields = await validateCustomFieldValues(orgId, "booking", input.customFields, (b.customFields ?? {}) as Record<string, unknown>, "update");
+    }
     if (wants.instructions && input.instructions !== b.instructions) set.instructions = input.instructions;
     if (wants.officeNotes && input.officeNotes !== b.officeNotes) set.officeNotes = input.officeNotes;
-    if ((set.instructions !== undefined || set.officeNotes !== undefined) && !activities.some((a) => a.type === "booking.updated")) {
+    if ((set.instructions !== undefined || set.officeNotes !== undefined || set.customFields !== undefined) && !activities.some((a) => a.type === "booking.updated")) {
       activities.push({ organizationId: orgId, actorId: user.id, type: "booking.updated", customerId: b.customerId, bookingId: b._id, metadata: { fields: ["notes"] } });
     }
     if (Object.keys(set).length === 0) return;

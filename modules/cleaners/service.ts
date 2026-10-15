@@ -13,6 +13,7 @@ import { escapeRegex, normalizeEmail, OBJECT_ID_RE } from "@/lib/domain/normaliz
 import { parsePhone } from "@/lib/domain/phone";
 import { AppError, Errors } from "@/lib/http/errors";
 import { recordAudit } from "@/modules/audit/service";
+import { validateCustomFieldValues } from "@/modules/custom-fields/service";
 import { inviteUser } from "@/modules/users/service";
 
 export const cleanerInputSchema = z
@@ -23,6 +24,7 @@ export const cleanerInputSchema = z
     email: z.union([z.literal(""), z.string().trim().email("Enter a valid email or leave it blank").max(254)]).default(""),
     serviceAreas: z.array(z.string().trim().min(1).max(60)).max(20).default([]),
     notes: z.string().trim().max(5000).default(""),
+    customFields: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 
@@ -44,6 +46,7 @@ export type CleanerDTO = {
   serviceAreas: string[];
   notes: string;
   linkedUser: { id: string; name: string; email: string; status: string } | null;
+  customFields: Record<string, unknown>;
 };
 
 type CleanerLike = {
@@ -57,6 +60,7 @@ type CleanerLike = {
   serviceAreas?: string[] | null;
   notes?: string | null;
   linkedUserId?: Types.ObjectId | null;
+  customFields?: unknown;
 };
 
 function toCleanerDTO(c: CleanerLike, linked?: { _id: Types.ObjectId; name: string; email: string; status: string } | null): CleanerDTO {
@@ -71,6 +75,7 @@ function toCleanerDTO(c: CleanerLike, linked?: { _id: Types.ObjectId; name: stri
     serviceAreas: c.serviceAreas ?? [],
     notes: c.notes ?? "",
     linkedUser: linked ? { id: String(linked._id), name: linked.name, email: linked.email, status: linked.status } : null,
+    customFields: (c.customFields && typeof c.customFields === "object" ? c.customFields : {}) as Record<string, unknown>,
   };
 }
 
@@ -150,7 +155,8 @@ export async function createCleaner(user: CurrentUser, raw: unknown) {
   const input = cleanerInputSchema.parse(raw);
   await connectDb();
   // A cleaner profile never grants login access by itself.
-  const doc = await Cleaner.create({ organizationId: user.organizationId, ...storedFields(input) });
+  const customFields = await validateCustomFieldValues(user.organizationId, "cleaner", input.customFields, {}, "create");
+  const doc = await Cleaner.create({ organizationId: user.organizationId, ...storedFields(input), customFields });
   await recordAudit({ organizationId: user.organizationId, actorId: user.id, action: "cleaner.created", entityType: "cleaner", entityId: doc._id });
   return toCleanerDTO(doc.toObject());
 }
@@ -160,7 +166,8 @@ export async function updateCleaner(user: CurrentUser, id: string, raw: unknown)
   const input = cleanerInputSchema.parse(raw);
   await connectDb();
   const c = await loadCleaner(user, id);
-  await Cleaner.updateOne({ _id: c._id }, { $set: storedFields(input) });
+  const customFields = input.customFields !== undefined ? await validateCustomFieldValues(user.organizationId, "cleaner", input.customFields, (c.customFields ?? {}) as Record<string, unknown>, "update") : undefined;
+  await Cleaner.updateOne({ _id: c._id }, { $set: { ...storedFields(input), ...(customFields ? { customFields } : {}) } });
   await recordAudit({ organizationId: user.organizationId, actorId: user.id, action: "cleaner.updated", entityType: "cleaner", entityId: c._id });
   return getCleaner(user, id);
 }

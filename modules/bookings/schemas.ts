@@ -42,6 +42,8 @@ export const createBookingSchema = z
     officeNotes: z.string().trim().max(5000).default(""),
     /** COMPLETED is for recording past jobs; it requires a start time in the past. */
     status: z.enum(["SCHEDULED", "COMPLETED"]).default("SCHEDULED"),
+    /** Values for booking custom fields (validated against the organization's definitions). */
+    customFields: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 
@@ -56,6 +58,7 @@ export const updateBookingSchema = z
     cleanerIds: z.array(objectId).max(10).optional(),
     instructions: z.string().trim().max(5000).optional(),
     officeNotes: z.string().trim().max(5000).optional(),
+    customFields: z.record(z.string(), z.unknown()).optional(),
   })
   .strict()
   .refine((v) => [v.date, v.startTime, v.durationMinutes].every((x) => x === undefined) || [v.date, v.startTime, v.durationMinutes].every((x) => x !== undefined), {

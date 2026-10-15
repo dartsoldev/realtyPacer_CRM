@@ -17,6 +17,13 @@ import { formatCents } from "@/lib/domain/money";
 import { formatDate, formatDateTime } from "@/lib/domain/time";
 import { AppError } from "@/lib/http/errors";
 import { getBooking } from "@/modules/bookings/service";
+import { customFieldDefsFor } from "@/modules/custom-fields/service";
+import { listAdjustments } from "@/modules/finance/charges";
+import { AdjustLineButton, CancellationCreditButton, DiscountButton, FinalizeButton } from "@/components/finance/billing-actions";
+import { RecordPaymentButton } from "@/components/finance/payment-dialogs";
+import { BillingStateBadge } from "@/components/finance/status";
+import { CustomFieldValues } from "@/components/custom-fields/values";
+import { formatBasisPoints } from "@/lib/domain/billing";
 
 export const metadata: Metadata = { title: "Booking" };
 
@@ -33,6 +40,10 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
   }
   const office = can(user, "bookings:read");
   const tz = b.timezone;
+  const [adjustments, cfDefs] = await Promise.all([
+    b.billing && b.billing.state === "FINALIZED" && can(user, "financials:read") ? listAdjustments(user, b.id) : [],
+    Object.keys(b.customFields).length ? customFieldDefsFor(user.organizationId, "booking") : [],
+  ]);
   const isFutureScheduled = b.status === "SCHEDULED" && new Date(b.scheduledStartAt) > new Date();
 
   return (
@@ -140,6 +151,113 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
               </p>
             ) : null}
           </Card>
+
+          {b.billing ? (
+            <Card>
+              <CardHeader
+                title="Billing"
+                description={b.billing.state === "FINALIZED" ? `Finalized${b.billing.finalizedAt ? ` ${formatDateTime(b.billing.finalizedAt, tz)}` : ""} — amounts are locked; use adjustments for corrections.` : "Draft estimate — nothing is owed until charges are finalized."}
+                actions={<BillingStateBadge state={b.billing.state} />}
+              />
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[36rem] text-sm">
+                  <thead className="bg-canvas text-left text-xs text-muted">
+                    <tr>
+                      <th scope="col" className="px-4 py-2 font-medium">Service</th>
+                      <th scope="col" className="px-4 py-2 text-right font-medium">Price</th>
+                      <th scope="col" className="px-4 py-2 text-right font-medium">Discount</th>
+                      {b.billing.tax.enabled ? <th scope="col" className="px-4 py-2 text-right font-medium">{b.billing.tax.label || "Tax"}</th> : null}
+                      <th scope="col" className="px-4 py-2 text-right font-medium">{b.billing.state === "FINALIZED" ? "Charged" : "Estimate"}</th>
+                      {b.billing.paidCents !== null ? <th scope="col" className="px-4 py-2 text-right font-medium">Paid</th> : null}
+                      {b.billing.balanceCents !== null ? <th scope="col" className="px-4 py-2 text-right font-medium">Balance</th> : null}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {b.billing.lines.map((l) => (
+                      <tr key={l.lineItemId}>
+                        <td className="px-4 py-2">{l.name}{l.adjustmentCents ? <span className="block text-xs text-muted">Adjusted {l.adjustmentCents > 0 ? "+" : "−"}{formatCents(Math.abs(l.adjustmentCents), b.currency)}</span> : null}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{formatCents(l.grossCents, b.currency)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{l.discountCents ? `−${formatCents(l.discountCents, b.currency)}` : "—"}</td>
+                        {b.billing!.tax.enabled ? <td className="px-4 py-2 text-right tabular-nums">{formatCents(l.taxCents, b.currency)}</td> : null}
+                        <td className="px-4 py-2 text-right tabular-nums">{formatCents(l.chargedCents + l.adjustmentCents, b.currency)}</td>
+                        {l.paidCents !== null ? <td className="px-4 py-2 text-right tabular-nums">{formatCents(l.paidCents, b.currency)}</td> : null}
+                        {l.balanceCents !== null ? <td className="px-4 py-2 text-right tabular-nums">{formatCents(l.balanceCents, b.currency)}</td> : null}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-1 border-t border-line px-5 py-3 text-sm">
+                <dt className="text-muted">Services</dt>
+                <dd className="text-right tabular-nums">{formatCents(b.billing.grossCents, b.currency)}</dd>
+                {b.billing.discountCents ? (
+                  <>
+                    <dt className="text-muted">Discount{b.billing.discount.type === "percent" ? ` (${formatBasisPoints(b.billing.discount.basisPoints)})` : ""}</dt>
+                    <dd className="text-right tabular-nums">−{formatCents(b.billing.discountCents, b.currency)}</dd>
+                  </>
+                ) : null}
+                <dt className="text-muted">{b.billing.tax.enabled ? `${b.billing.tax.label || "Tax"} (${formatBasisPoints(b.billing.tax.rateBasisPoints)})` : "Tax"}</dt>
+                <dd className="text-right tabular-nums">{b.billing.tax.enabled ? formatCents(b.billing.taxCents, b.currency) : "Not configured"}</dd>
+                {b.billing.adjustmentsCents ? (
+                  <>
+                    <dt className="text-muted">Adjustments</dt>
+                    <dd className="text-right tabular-nums">{b.billing.adjustmentsCents > 0 ? "+" : "−"}{formatCents(Math.abs(b.billing.adjustmentsCents), b.currency)}</dd>
+                  </>
+                ) : null}
+                <dt className="font-semibold">{b.billing.state === "FINALIZED" ? "Total charged" : "Estimated total"}</dt>
+                <dd className="text-right font-semibold tabular-nums">{formatCents(b.billing.chargedCents + b.billing.adjustmentsCents, b.currency)}</dd>
+                {b.billing.paidCents !== null ? (
+                  <>
+                    <dt className="text-muted">Paid (applied)</dt>
+                    <dd className="text-right tabular-nums">{formatCents(b.billing.paidCents, b.currency)}</dd>
+                  </>
+                ) : null}
+                {b.billing.balanceCents !== null ? (
+                  <>
+                    <dt className="font-semibold">Balance owed</dt>
+                    <dd className="text-right font-semibold tabular-nums">{formatCents(b.billing.balanceCents, b.currency)}</dd>
+                  </>
+                ) : null}
+              </dl>
+              {adjustments.length ? (
+                <div className="border-t border-line px-5 py-3 text-sm">
+                  <h3 className="mb-1 font-medium">Adjustment history</h3>
+                  <ul className="space-y-1">
+                    {adjustments.map((x) => (
+                      <li key={x.id} className="flex flex-wrap justify-between gap-2">
+                        <span>{formatDateTime(x.createdAt, tz)} · {b.billing!.lines.find((l) => l.lineItemId === x.lineItemId)?.name ?? "Service"} · {x.reason}</span>
+                        <span className="tabular-nums">{x.amountCents > 0 ? "+" : "−"}{formatCents(Math.abs(x.amountCents), b.currency)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2 border-t border-line px-5 py-3">
+                {b.billing.state === "DRAFT" && can(user, "billing:finalize") && b.status !== "CANCELLED" ? (
+                  <>
+                    <DiscountButton bookingId={b.id} version={b.version} current={b.billing.discount} currency={b.currency} />
+                    <FinalizeButton bookingId={b.id} version={b.version} chargedCents={b.billing.chargedCents} currency={b.currency} taxNote={b.billing.tax.enabled ? `${b.billing.tax.label || "Tax"} at ${formatBasisPoints(b.billing.tax.rateBasisPoints)} is included and locked in.` : "No tax is added (tax is not configured)."} />
+                  </>
+                ) : null}
+                {b.billing.state === "FINALIZED" && can(user, "billing:adjust") && b.status !== "CANCELLED" ? (
+                  <AdjustLineButton bookingId={b.id} currency={b.currency} lines={b.billing.lines.map((l) => ({ lineItemId: l.lineItemId, name: l.name, effectiveCents: l.chargedCents + l.adjustmentCents, paidCents: l.paidCents ?? 0 }))} />
+                ) : null}
+                {b.billing.state === "FINALIZED" && b.status === "CANCELLED" && can(user, "billing:adjust") && (b.billing.balanceCents ?? 0) > 0 ? (
+                  <CancellationCreditButton bookingId={b.id} unpaidCents={b.billing.balanceCents ?? 0} currency={b.currency} />
+                ) : null}
+                {b.billing.state === "FINALIZED" && (b.billing.balanceCents ?? 0) > 0 && can(user, "payments:record") ? (
+                  <RecordPaymentButton customer={{ id: b.customer.id, name: b.customer.name }} bookingId={b.id} currency={b.currency} timezone={tz} variant="secondary" />
+                ) : null}
+              </div>
+            </Card>
+          ) : null}
+
+          {cfDefs.length && Object.keys(b.customFields).length ? (
+            <Card>
+              <CardHeader title="Additional details" />
+              <CustomFieldValues defs={cfDefs} values={b.customFields} timezone={tz} />
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader title="Job instructions" description="Visible to the assigned cleaners" />

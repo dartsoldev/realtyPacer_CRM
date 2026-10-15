@@ -178,8 +178,8 @@ describe("authentication and authorization on /api/v1", () => {
   it("lets ADMIN manage STAFF grants but strips non-grantable permissions", async () => {
     const { admin, staff } = await setup();
     await signInAs(admin);
-    expect((await patch(String(staff._id), { permissionGrants: ["payments:read"] })).status).toBe(200);
-    expect((await User.findById(staff._id).lean())?.permissionGrants).toEqual(["payments:read"]);
+    expect((await patch(String(staff._id), { permissionGrants: ["financials:read"] })).status).toBe(200);
+    expect((await User.findById(staff._id).lean())?.permissionGrants).toEqual(["financials:read"]);
     expect((await patch(String(staff._id), { permissionGrants: ["users:manage"] })).status).toBe(400);
   });
 

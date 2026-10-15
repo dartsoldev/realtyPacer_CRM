@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/field";
 import { apiRequest } from "@/lib/client/api";
+import { CustomFieldInputs, changedCustomFields, useCustomFieldDefs, type CustomFieldDraft } from "@/components/custom-fields/inputs";
 import { formatDateTime } from "@/lib/domain/time";
 import type { AffectedBooking, CleanerDTO } from "@/modules/cleaners/service";
 
@@ -26,6 +27,8 @@ function CleanerDialog({ cleaner, onClose }: { cleaner: CleanerDTO | null; onClo
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const cfDefs = useCustomFieldDefs("cleaner");
+  const [cf, setCf] = useState<CustomFieldDraft>(cleaner?.customFields ?? {});
 
   async function save() {
     if (!v.name.trim()) {
@@ -34,7 +37,7 @@ function CleanerDialog({ cleaner, onClose }: { cleaner: CleanerDTO | null; onClo
     }
     setSaving(true);
     setFailure(null);
-    const body = { name: v.name, phone: v.phone, email: v.email, serviceAreas: v.serviceAreas.split(",").map((s) => s.trim()).filter(Boolean), notes: v.notes };
+    const body = { name: v.name, phone: v.phone, email: v.email, serviceAreas: v.serviceAreas.split(",").map((s) => s.trim()).filter(Boolean), notes: v.notes, customFields: changedCustomFields(cfDefs, cleaner?.customFields ?? {}, cf) };
     const res = cleaner ? await apiRequest<CleanerDTO>(`/api/v1/cleaners/${cleaner.id}`, { method: "PATCH", body }) : await apiRequest<CleanerDTO>("/api/v1/cleaners", { method: "POST", body });
     setSaving(false);
     if (!res.ok) {
@@ -77,6 +80,7 @@ function CleanerDialog({ cleaner, onClose }: { cleaner: CleanerDTO | null; onClo
         <Field label="Internal notes">
           {({ id }) => <textarea id={id} rows={3} maxLength={5000} value={v.notes} onChange={set("notes")} className="block w-full rounded-lg border border-line bg-surface px-3 py-2 text-base sm:text-sm" />}
         </Field>
+        <CustomFieldInputs defs={cfDefs} values={cf} errors={errors} onChange={(k, val) => setCf((prev) => ({ ...prev, [k]: val }))} />
         <div className="flex justify-end gap-2 border-t border-line pt-4">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel

@@ -1,5 +1,5 @@
 import "server-only";
-import { Types } from "mongoose";
+import { Types, type ClientSession } from "mongoose";
 import { z } from "zod";
 import type { CurrentUser } from "@/lib/auth/current-user";
 import { connectDb } from "@/lib/db/connect";
@@ -23,18 +23,25 @@ export type AuditInput = {
  * Records an audit event. Metadata is redacted (secrets removed, emails
  * masked). Audit failures are logged but never break the primary operation.
  */
-export async function recordAudit(input: AuditInput): Promise<void> {
+export async function recordAudit(input: AuditInput, session?: ClientSession): Promise<void> {
   try {
     await connectDb();
-    await AuditEvent.create({
+    const doc = {
       organizationId: input.organizationId,
       actorId: input.actorId ?? null,
       action: input.action,
       entityType: input.entityType,
       entityId: input.entityId ?? null,
       metadata: redact(input.metadata ?? {}),
-    });
+    };
+    // Inside a transaction the event commits (or rolls back) with the change itself.
+    if (session) {
+      await AuditEvent.create([doc], { session });
+      return;
+    }
+    await AuditEvent.create(doc);
   } catch (err) {
+    if (session) throw err;
     logger.error("audit.write_failed", { action: input.action, error: err as Error });
   }
 }

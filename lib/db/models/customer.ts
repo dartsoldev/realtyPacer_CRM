@@ -35,6 +35,17 @@ const customerSchema = new Schema(
     primaryCity: { type: String, default: null },
     /** Values for admin-defined CustomFieldDefinition keys; validated in phase 3. */
     customFields: { type: Schema.Types.Mixed, default: () => ({}) },
+    /**
+     * Derived balances, updated in the same transaction as the authoritative
+     * financial records (receipts, refunds, allocations, finalization,
+     * adjustments, loyalty entries). Never editable; see modules/finance/reconcile.
+     */
+    outstandingCents: { type: Number, default: 0, min: 0 },
+    creditCents: { type: Number, default: 0, min: 0 },
+    pointsBalance: { type: Number, default: 0, min: 0 },
+    lastPaymentAt: { type: Date, default: null },
+    /** Shared contention record for this customer's money and points movements. */
+    ledgerRevision: { type: Number, default: 0 },
     archivedAt: { type: Date, default: null },
     archivedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
@@ -49,6 +60,8 @@ customerSchema.index({ organizationId: 1, phone: 1 });
 customerSchema.index({ organizationId: 1, phoneDigits: 1 });
 customerSchema.index({ organizationId: 1, tags: 1 });
 customerSchema.index({ organizationId: 1, addressCities: 1 });
+customerSchema.index({ organizationId: 1, outstandingCents: -1 });
+customerSchema.index({ organizationId: 1, pointsBalance: -1 });
 
 export type CustomerDoc = InferSchemaType<typeof customerSchema> & { _id: Types.ObjectId };
 

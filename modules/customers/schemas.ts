@@ -69,6 +69,8 @@ export const customerFieldsSchema = z.object({
   contactSource: z.union([z.literal(""), z.enum(CONTACT_SOURCES)]).default(""),
   tags: tagsSchema,
   notes: text(5000).default(""),
+  /** Values for customer custom fields; validated server-side against the definitions. */
+  customFields: z.record(z.string(), z.unknown()).optional(),
 });
 
 /** Name + contact rules shared by create and update. */
@@ -110,4 +112,6 @@ export const customerListQuery = z.object({
   status: z.enum(["active", "archived", "all"]).default("active"),
   sort: z.enum(CUSTOMER_SORTS).default("name"),
   dir: z.enum(["asc", "desc"]).default("asc"),
+  /** Encoded advanced filter conditions (same engine as reports, customer fields only). */
+  f: z.string().max(8000).optional(),
 });

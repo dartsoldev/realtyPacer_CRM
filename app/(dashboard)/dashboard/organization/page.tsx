@@ -5,6 +5,7 @@ import { can } from "@/lib/auth/current-user";
 import { requirePageUser } from "@/lib/auth/page-guard";
 import { getOrganizationSettings } from "@/modules/organization/service";
 import { OrganizationForm } from "./organization-form";
+import { TaxSettings } from "./tax-settings";
 
 export const metadata: Metadata = { title: "Organization" };
 
@@ -20,6 +21,7 @@ export default async function OrganizationPage() {
         canEdit={can(user, "organization:update")}
         canEditProtected={can(user, "organization:update_protected")}
       />
+      <TaxSettings tax={settings.tax} canEdit={can(user, "organization:update_protected")} />
     </>
   );
 }

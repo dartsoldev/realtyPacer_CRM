@@ -1,6 +1,7 @@
 import "server-only";
 import { Schema, model, models, type InferSchemaType, type Model, type Types } from "mongoose";
-import { BOOKING_STATUSES, MAX_BOOKING_MINUTES, MAX_LINE_ITEMS, MAX_LINE_QUANTITY, MAX_UNIT_PRICE_CENTS } from "@/lib/domain/constants";
+import { computeBookingAmounts, NO_TAX } from "@/lib/domain/billing";
+import { BILLING_STATES, BOOKING_STATUSES, DISCOUNT_TYPES, MAX_BOOKING_MINUTES, MAX_LINE_ITEMS, MAX_LINE_QUANTITY, MAX_UNIT_PRICE_CENTS } from "@/lib/domain/constants";
 import { addressFields, integerValidator } from "./shared";
 
 /**
@@ -16,7 +17,21 @@ const lineItemSchema = new Schema({
   /** Catalog price at the time the item was added (for override auditing). */
   catalogUnitPriceCents: { type: Number, required: true, min: 0, validate: integerValidator },
   durationMinutes: { type: Number, required: true, min: 0, max: MAX_BOOKING_MINUTES, validate: integerValidator },
+  /** Gross = quantity × unit price. */
   lineTotalCents: { type: Number, required: true, min: 0, validate: integerValidator },
+  /** Booking-level discount allocated to this line (largest-remainder method). */
+  discountCents: { type: Number, default: 0, min: 0, validate: integerValidator },
+  /** Net service value = gross − discount, before tax. */
+  netCents: { type: Number, default: 0, min: 0, validate: integerValidator },
+  taxCents: { type: Number, default: 0, min: 0, validate: integerValidator },
+  /** Net + tax. Frozen when the booking is FINALIZED. */
+  chargedCents: { type: Number, default: 0, min: 0, validate: integerValidator },
+  /**
+   * Derived balances, maintained in the same transaction as the authoritative
+   * ChargeAdjustment / Payment records (see modules/finance). Never edited directly.
+   */
+  adjustmentCents: { type: Number, default: 0, validate: integerValidator },
+  allocatedCents: { type: Number, default: 0, min: 0, validate: integerValidator },
 });
 
 const addressSnapshotSchema = new Schema(addressFields, { _id: false });
@@ -45,8 +60,43 @@ const bookingSchema = new Schema(
       validate: { validator: (v: unknown[]) => v.length > 0 && v.length <= MAX_LINE_ITEMS, message: `1–${MAX_LINE_ITEMS} service items required` },
     },
     currency: { type: String, required: true, match: /^[A-Z]{3}$/ },
-    /** Sum of line totals (service subtotal — no taxes or discounts in this phase). */
+    /** Sum of line gross amounts (quantity × unit price). */
     subtotalCents: { type: Number, required: true, min: 0, validate: integerValidator },
+    /** Billing state, separate from job status. DRAFT = estimate (no debt); FINALIZED = amount owed. */
+    billingState: { type: String, enum: BILLING_STATES, required: true, default: "DRAFT" },
+    discount: {
+      type: new Schema(
+        {
+          type: { type: String, enum: DISCOUNT_TYPES, default: "none" },
+          amountCents: { type: Number, default: 0, min: 0, validate: integerValidator },
+          basisPoints: { type: Number, default: 0, min: 0, max: 10_000, validate: integerValidator },
+        },
+        { _id: false },
+      ),
+      default: () => ({}),
+    },
+    /** Tax configuration snapshot (copied from the organization; frozen at finalization). */
+    tax: {
+      type: new Schema(
+        {
+          enabled: { type: Boolean, default: false },
+          rateBasisPoints: { type: Number, default: 0, min: 0, max: 10_000 },
+          label: { type: String, default: "" },
+        },
+        { _id: false },
+      ),
+      default: () => ({}),
+    },
+    discountCents: { type: Number, default: 0, min: 0, validate: integerValidator },
+    netCents: { type: Number, default: 0, min: 0, validate: integerValidator },
+    taxCents: { type: Number, default: 0, min: 0, validate: integerValidator },
+    chargedCents: { type: Number, default: 0, min: 0, validate: integerValidator },
+    adjustmentsCents: { type: Number, default: 0, validate: integerValidator },
+    allocatedCents: { type: Number, default: 0, min: 0, validate: integerValidator },
+    finalizedAt: { type: Date, default: null },
+    finalizedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    /** Shared contention record for money movements touching this booking's lines. */
+    ledgerRevision: { type: Number, default: 0 },
     actualStartedAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },
     cancelledAt: { type: Date, default: null },
@@ -64,6 +114,18 @@ const bookingSchema = new Schema(
 bookingSchema.pre("validate", function () {
   for (const item of this.lineItems) item.lineTotalCents = item.quantity * item.unitPriceCents;
   this.subtotalCents = this.lineItems.reduce((sum, i) => sum + i.lineTotalCents, 0);
+  // Draft amounts are always recomputed; finalized amounts are frozen.
+  if (this.billingState !== "FINALIZED") {
+    const disc = this.discount ?? { type: "none" };
+    const tax = this.tax?.enabled ? { enabled: true, rateBasisPoints: this.tax.rateBasisPoints ?? 0, label: this.tax.label ?? "" } : NO_TAX;
+    const { lines, totals } = computeBookingAmounts(
+      this.lineItems.map((l) => l.lineTotalCents),
+      { type: (disc.type ?? "none") as "none" | "fixed" | "percent", amountCents: disc.amountCents ?? 0, basisPoints: disc.basisPoints ?? 0 },
+      tax,
+    );
+    this.lineItems.forEach((l, i) => Object.assign(l, { discountCents: lines[i]!.discountCents, netCents: lines[i]!.netCents, taxCents: lines[i]!.taxCents, chargedCents: lines[i]!.chargedCents }));
+    Object.assign(this, { discountCents: totals.discountCents, netCents: totals.netCents, taxCents: totals.taxCents, chargedCents: totals.chargedCents });
+  }
   if (this.scheduledStartAt && this.scheduledEndAt && this.scheduledEndAt <= this.scheduledStartAt) {
     this.invalidate("scheduledEndAt", "Scheduled end must be after scheduled start");
   }
@@ -79,6 +141,8 @@ bookingSchema.index({ organizationId: 1, status: 1, scheduledStartAt: 1 });
 bookingSchema.index({ organizationId: 1, customerId: 1, scheduledStartAt: -1 });
 bookingSchema.index({ organizationId: 1, "addressSnapshot.cityNormalized": 1, scheduledStartAt: 1 });
 bookingSchema.index({ organizationId: 1, "lineItems.serviceId": 1, scheduledStartAt: 1 });
+bookingSchema.index({ organizationId: 1, customerId: 1, billingState: 1 });
+bookingSchema.index({ organizationId: 1, status: 1, "lineItems.serviceId": 1, scheduledStartAt: 1 });
 // Overlap checks and cleaner schedules.
 bookingSchema.index({ organizationId: 1, assignedCleanerIds: 1, status: 1, scheduledStartAt: 1, scheduledEndAt: 1 });
 

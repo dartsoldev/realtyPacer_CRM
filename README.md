@@ -159,7 +159,14 @@ TEST_MONGODB_URI="mongodb+srv://USER:PASSWORD@HOST/" npm test
 - **Cleaners**: profiles, availability (deactivation lists affected jobs), explicit sign-in invitation or account linking, schedules.
 - **Bookings**: idempotent creation with customer autocomplete and inline customer/address creation, multiple service items with server-side totals, cleaner assignment with double-booking prevention (transactional), DST-aware times, lifecycle (start/complete/cancel/reopen), optimistic-concurrency edits, address snapshots.
 - **Calendar**: day/week/month/agenda in the organization timezone, filters, click to open or create.
-- **Dashboards**: office operations overview; "My jobs" for cleaners with only the information they need.
+- **Dashboards**: office operations overview with money cards (each states its date basis); "My jobs" for cleaners with only the information they need.
+- **Billing**: draft estimates → finalized charges with an optional discount and an optional single sales-tax rate (off until configured, snapshotted per booking); append-only adjustments and cancellation credits.
+- **Payments** (manual receipts for money received outside RealtyPacer): partial, multiple and multi-booking payments allocated to specific booked services, customer credit and later application, recorded refunds, reversal of mistaken receipts, printable acknowledgment. Concurrency-safe and idempotent.
+- **Customer finance and loyalty**: lifetime summary from authoritative records, open charges, payment history; points ledger with reasons and reversals.
+- **Reports**: Service performance, Customer summary and Cash received with combined AND filters (e.g. city is any of Mississauga, Toronto AND service is Sofa cleaning), date presets, sortable paginated results, column choice, breakdowns with optional charts, saved private/shared views and server-side CSV export.
+- **Custom fields** for customers, bookings and cleaners (8 types), with safe generated keys, archive/restore and cleaner visibility for booking fields.
+
+RealtyPacer does **not** process online or card payments, send refunds, or place calls from the browser. Payments are records of money received elsewhere; never enter card numbers.
 
 ## Walkthrough
 
@@ -171,6 +178,18 @@ TEST_MONGODB_URI="mongodb+srv://USER:PASSWORD@HOST/" npm test
 6. **Open it in the calendar** — on the booking page choose *In calendar*, or open Calendar; click the job to return to it.
 7. **Complete it and review history** — on the booking page use *Start job* and *Complete job* (cleaners can do this from "My jobs"). The customer profile then shows the completed booking, service items, distinct service days and the booking in *Bookings & service history*.
 
-## Not yet (phases 3–4)
+## Demonstration path (phase 3)
 
-Payments and allocation to booking service items, outstanding balances, combined filters and reports, custom-field administration, loyalty (phase 3); integrations, performance, security review, deployment (phase 4).
+1. **Organization → Sales tax** (superadmin, optional): enable e.g. "HST" at 13 %. Leave it off to finalize without tax.
+2. **Custom fields → New field**: add "Number of pets" (number, list column, filterable) for customers and "Pet in house" (yes/no, visible to assigned cleaners) for bookings. Fill them in on a customer and a booking.
+3. **Bookings**: create two completed bookings for a Mississauga customer (e.g. 1 sofa + 2 rooms carpet, and 1 sofa). On the first, open **Billing → Discount** (10 %), then **Finalize charges** on both. Drafts show "Draft estimate — nothing is owed".
+4. **Record payment** from the booking's Billing card: enter more than the first booking's balance. The preview applies this booking first, then the oldest service dates; any rest is kept as credit.
+5. **Payments → open the receipt**: see where it was applied, then **Record refund** for part of one service (after returning the money outside the app). The refunded service becomes owed again.
+6. **Customer → Finance**: outstanding = finalized charges ± adjustments − net applied; net received = receipts − refunds. **Loyalty points** tab: grant points, redeem some, reverse an entry.
+7. **Booking → Adjust charge**: add a goodwill credit to lower what's owed (no money moves). For a scheduled booking whose charges were finalized (e.g. a deposit) and then cancelled, use **Credit unpaid balance** so nothing stays owed.
+8. **Reports**: *Service performance*, this month, add *Service city is any of Mississauga* and *Service is any of Sofa cleaning*. Check totals, sort, choose columns, turn on charts, **Save** the view (shared, "This month" moves with the calendar), and **Export CSV**. Switch to *Cash received* to see the refund in the month it was made.
+9. **Dashboard**: the money cards (net cash this month, outstanding now, unapplied credit, completed work charged) link to the matching report or list. Sign in as a cleaner: no money, reports or office-only fields are visible.
+
+## Not yet (phase 4)
+
+Online payment processing, automatic refunds and browser calling are intentionally not implemented. Phase 4: integrations, performance work, a security review and deployment.

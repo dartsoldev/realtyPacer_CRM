@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/field";
 import { apiRequest } from "@/lib/client/api";
+import { CustomFieldInputs, changedCustomFields, useCustomFieldDefs, type CustomFieldDraft } from "@/components/custom-fields/inputs";
 import { useDebounced, useIdempotencyKey, useUnsavedChangesWarning } from "@/lib/client/hooks";
 import { formatMinutes } from "@/lib/domain/duration";
 import { formatAddress } from "@/lib/domain/links";
@@ -31,12 +32,12 @@ export type BookingFormOptions = {
 };
 
 type Line = { key: string; lineItemId?: string; serviceId: string; name?: string; unitLabel?: string; quantity: string; price: string; catalogPrice: number | null; durationMinutes: number };
-type CustomerPick = { id: string; name: string; phoneDisplay: string | null; email: string | null; primaryCity: string | null };
+export type CustomerPick = { id: string; name: string; phoneDisplay: string | null; email: string | null; primaryCity: string | null };
 
 let lineCounter = 0;
 const newLineKey = () => `l${++lineCounter}`;
 
-function CustomerPicker({ value, onChange, canCreate }: { value: CustomerPick | null; onChange: (c: CustomerPick | null) => void; canCreate: boolean }) {
+export function CustomerPicker({ value, onChange, canCreate }: { value: CustomerPick | null; onChange: (c: CustomerPick | null) => void; canCreate: boolean }) {
   const [q, setQ] = useState("");
   const debounced = useDebounced(q, 300);
   const [results, setResults] = useState<CustomerPick[]>([]);
@@ -157,6 +158,8 @@ export function BookingForm({
   const [cleanerIds, setCleanerIds] = useState<string[]>(initial?.cleaners.map((c) => c.id) ?? []);
   const [instructions, setInstructions] = useState(initial?.instructions ?? "");
   const [officeNotes, setOfficeNotes] = useState(initial?.officeNotes ?? "");
+  const cfDefs = useCustomFieldDefs("booking");
+  const [cf, setCf] = useState<CustomFieldDraft>(initial?.customFields ?? {});
   const [status, setStatus] = useState<"SCHEDULED" | "COMPLETED">("SCHEDULED");
   const [disambiguation, setDisambiguation] = useState<"earlier" | "later" | null>(null);
   const [ambiguous, setAmbiguous] = useState<{ earlier: string; later: string } | null>(null);
@@ -247,6 +250,7 @@ export function BookingForm({
           instructions,
           officeNotes,
           status,
+          customFields: changedCustomFields(cfDefs, {}, cf),
         },
       });
     } else {
@@ -256,6 +260,8 @@ export function BookingForm({
       if (editable.has("cleaners")) body.cleanerIds = cleanerIds;
       if (editable.has("instructions")) body.instructions = instructions;
       if (editable.has("officeNotes")) body.officeNotes = officeNotes;
+      const cfChanges = changedCustomFields(cfDefs, initial!.customFields ?? {}, cf);
+      if (cfChanges && editable.has("officeNotes")) body.customFields = cfChanges;
       res = await apiRequest<BookingDTO>(`/api/v1/bookings/${initial!.id}`, { method: "PATCH", body });
     }
     setSaving(false);
@@ -591,6 +597,8 @@ export function BookingForm({
           )}
         </Field>
       </section>
+
+      {editable.has("officeNotes") ? <CustomFieldInputs defs={cfDefs} values={cf} errors={fieldErrors} onChange={(k, val) => { setCf((prev) => ({ ...prev, [k]: val })); touch(); }} /> : null}
 
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         <Button type="button" variant="secondary" onClick={() => (initial ? router.push(`/dashboard/bookings/${initial.id}`) : router.back())}>

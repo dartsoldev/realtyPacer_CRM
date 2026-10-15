@@ -15,6 +15,11 @@ import { CUSTOMER_TYPE_LABELS } from "@/lib/domain/constants";
 import { formatDate } from "@/lib/domain/time";
 import { CUSTOMER_COLUMNS, customerListQuery, DEFAULT_CUSTOMER_COLUMNS, type CustomerColumn } from "@/modules/customers/schemas";
 import { listCustomers } from "@/modules/customers/service";
+import { formatCustomValue } from "@/components/custom-fields/values";
+import { formatCents } from "@/lib/domain/money";
+import { customFieldDefsFor } from "@/modules/custom-fields/service";
+import { decodeDefinition, OPERATOR_LABELS, type Operator } from "@/modules/reports/definition";
+import { fieldsWithOptions } from "@/modules/reports/filters";
 
 export const metadata: Metadata = { title: "Customers" };
 
@@ -37,16 +42,35 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
   const parsed = customerListQuery.safeParse(raw);
   const query = parsed.success ? parsed.data : customerListQuery.parse({});
   const cols: CustomerColumn[] = raw.cols ? (raw.cols.split(",").filter((c) => (CUSTOMER_COLUMNS as readonly string[]).includes(c)) as CustomerColumn[]) : DEFAULT_CUSTOMER_COLUMNS;
-  const result = await listCustomers(user, query);
+  const [result, cfDefs, filterFields] = await Promise.all([
+    listCustomers(user, query),
+    customFieldDefsFor(user.organizationId, "customer").then((d) => d.filter((x) => x.showInTable && !x.archived)),
+    query.f ? fieldsWithOptions(user, "customer_list") : Promise.resolve([]),
+  ]);
+  let advanced: string[] = [];
+  if (query.f) {
+    try {
+      const conds = decodeDefinition(query.f) as { field: string; op: Operator; value?: unknown }[];
+      const byKey = new Map(filterFields.map((f) => [f.key, f]));
+      advanced = (Array.isArray(conds) ? conds : []).map((c) => {
+        const f = byKey.get(c.field);
+        const v = c.value === undefined ? "" : f?.type === "money" && typeof c.value === "number" ? formatCents(c.value, user.organization.currency) : Array.isArray(c.value) ? c.value.map((x) => f?.options?.find((o) => o.value === x)?.label ?? String(x)).join(" or ") : (f?.options?.find((o) => o.value === c.value)?.label ?? String(c.value));
+        return `${f?.label ?? "Unavailable field"} ${OPERATOR_LABELS[c.op] ?? ""} ${v}`.trim();
+      });
+    } catch {
+      advanced = ["Advanced filter"];
+    }
+  }
   const label = plural(user.organization.terminology.customer);
   const tz = user.organization.timezone;
 
-  const keep = { q: query.q, city: query.city, tag: query.tag, status: query.status !== "active" ? query.status : undefined, sort: query.sort !== "name" ? query.sort : undefined, dir: query.dir !== "asc" ? query.dir : undefined, cols: raw.cols };
+  const keep = { q: query.q, city: query.city, tag: query.tag, status: query.status !== "active" ? query.status : undefined, sort: query.sort !== "name" ? query.sort : undefined, dir: query.dir !== "asc" ? query.dir : undefined, cols: raw.cols, f: query.f };
   const active = [
     query.q ? { key: "q", text: `Search: “${query.q}”` } : null,
     query.city ? { key: "city", text: `City: ${query.city}` } : null,
     query.tag ? { key: "tag", text: `Tag: ${query.tag}` } : null,
     query.status !== "active" ? { key: "status", text: query.status === "archived" ? "Archived only" : "Active and archived" } : null,
+    query.f ? { key: "f", text: advanced.join(" AND ") || "Advanced filter" } : null,
   ].filter(Boolean) as { key: string; text: string }[];
   const hrefWithout = (key: string) => {
     const sp = new URLSearchParams();
@@ -115,6 +139,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
           </div>
         ) : null}
 
+        {result.warnings.length ? <p className="border-b border-line px-4 py-2 text-sm text-pending">{result.warnings.join(" ")}</p> : null}
         {result.items.length === 0 ? (
           <EmptyState icon={Users} title={active.length ? `No ${label.toLowerCase()} match these filters` : `No ${label.toLowerCase()} yet`}>
             {active.length ? "Try different filters or reset them." : can(user, "customers:write") ? "Add your first customer to start booking jobs." : "Customers added by your team will appear here."}
@@ -157,6 +182,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
                         </Link>
                       </th>
                     ) : null}
+                    {cfDefs.map((d) => <th key={d.key} scope="col" className="px-3 py-3 font-semibold">{d.label}</th>)}
                     {cols.includes("created") ? (
                       <th scope="col" className="px-3 py-3 font-semibold">
                         <Link href={sortHref("createdAt")} className="inline-flex items-center gap-1 hover:text-ink">
@@ -187,6 +213,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
                       ) : null}
                       {cols.includes("type") ? <td className="px-3 py-3 text-muted">{CUSTOMER_TYPE_LABELS[c.customerType]}</td> : null}
                       {cols.includes("since") ? <td className="px-3 py-3 text-muted">{c.relationshipStartedAt ? formatDate(`${c.relationshipStartedAt}T12:00:00Z`, "UTC") : "Not specified"}</td> : null}
+                      {cfDefs.map((d) => <td key={d.key} className="px-3 py-3 text-muted">{formatCustomValue(d, c.customFields?.[d.key], tz)}</td>)}
                       {cols.includes("created") ? <td className="px-3 py-3 text-muted">{formatDate(c.createdAt, tz)}</td> : null}
                     </tr>
                   ))}
