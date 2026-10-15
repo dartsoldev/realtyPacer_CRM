@@ -19,9 +19,10 @@ export type GoogleStatusView = {
   problems: { id: string; bookingId: string; reference: string; status: string; externalState: string | null; lastError: string | null; attempts: number; updatedAt: string }[];
 };
 
-const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-CA", { dateStyle: "medium", timeStyle: "short" }) : "Never");
+const fmtIn = (timeZone: string) => (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-CA", { timeZone, dateStyle: "medium", timeStyle: "short" }) : "Never");
 
-export function GoogleCalendarCard({ status, flash }: { status: GoogleStatusView; flash: { ok?: boolean; error?: string } }) {
+export function GoogleCalendarCard({ status, flash, timeZone }: { status: GoogleStatusView; flash: { ok?: boolean; error?: string }; timeZone: string }) {
+  const fmt = fmtIn(timeZone);
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -160,9 +161,11 @@ export function GoogleCalendarCard({ status, flash }: { status: GoogleStatusView
           </ul>
         </div>
       ) : null}
+      {conn ? (
       <p className="flex items-center gap-1 text-xs text-muted">
         <ArrowRight className="size-3" aria-hidden /> Changes are sent by the background worker, usually within a minute. Edits made in Google are detected hourly and reported here, not imported.
       </p>
+      ) : null}
     </div>
   );
 }

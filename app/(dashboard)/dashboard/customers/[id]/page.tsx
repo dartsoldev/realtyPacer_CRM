@@ -32,7 +32,7 @@ import { todayKey } from "@/lib/domain/zoned-time";
 import { AppError } from "@/lib/http/errors";
 import { listAddresses } from "@/modules/customers/addresses";
 import { customerMetrics, customerServiceLines, getCustomer, type ServiceLineRow } from "@/modules/customers/service";
-import { CustomFieldsEditor, EditAddressButton } from "@/components/customers/profile-actions";
+import { CustomFieldsEditor, EditAddressButton, OutdatedAddressNotice } from "@/components/customers/profile-actions";
 import { customFieldDefsFor } from "@/modules/custom-fields/service";
 import { openCharges } from "@/modules/finance/payments";
 import { customerFinanceHistory, customerFinancialSummary } from "@/modules/finance/summary";
@@ -212,6 +212,11 @@ export default async function CustomerProfilePage({ params, searchParams }: { pa
           {upcoming ? (
             <Card>
               <CardHeader title="Upcoming bookings" actions={can(user, "bookings:write") && !customer.archived ? <Link href={`/dashboard/bookings/new?customerId=${customer.id}`} className="text-sm font-medium text-brand underline-offset-4 hover:underline">New booking</Link> : null} />
+              {can(user, "bookings:write") ? (
+                <OutdatedAddressNotice
+                  bookings={[...new Map(upcoming.items.filter((r) => r.outdatedAddress).map((r) => [r.bookingId, { bookingId: r.bookingId, reference: r.reference, date: formatDate(r.date, tz), ...r.outdatedAddress! }])).values()]}
+                />
+              ) : null}
               <ServiceTable rows={upcoming.items} tz={tz} showPaid={false} canCleaners={can(user, "cleaners:read")} empty="Nothing scheduled." />
             </Card>
           ) : null}
@@ -450,8 +455,40 @@ function FinanceTab({ customerId, data: [summary, history, open], currency, time
 /** Date | Service | Service address | Amount paid | Cleaner | Status — one row per service line. */
 function ServiceTable({ rows, tz, showPaid, canCleaners, empty }: { rows: ServiceLineRow[]; tz: string; showPaid: boolean; canCleaners: boolean; empty: string }) {
   if (rows.length === 0) return <p className="px-5 py-6 text-sm text-muted">{empty}</p>;
+  const cleanerNames = (r: ServiceLineRow) =>
+    r.cleaners.length === 0 ? (
+      <Badge tone="pending">Unassigned</Badge>
+    ) : (
+      r.cleaners.map((c, i) => (
+        <span key={c.id}>
+          {i > 0 ? ", " : ""}
+          {canCleaners ? <Link href={`/dashboard/cleaners/${c.id}`} className="underline-offset-4 hover:underline">{c.name}</Link> : c.name}
+        </span>
+      ))
+    );
   return (
-    <div className="overflow-x-auto">
+    <>
+      {/* Phones: one card per service so amount, cleaner and status stay visible. */}
+      <ul className="divide-y divide-line text-sm sm:hidden">
+        {rows.map((r) => (
+          <li key={`${r.bookingId}-${r.lineItemId}`} className="space-y-1 px-5 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <Link href={`/dashboard/bookings/${r.bookingId}`} className="font-medium text-brand underline-offset-4 hover:underline">{formatDate(r.date, tz)}</Link>
+                <span className="ml-2 whitespace-nowrap text-xs text-muted">{r.reference}</span>
+              </div>
+              <BookingStatusBadge status={r.status} />
+            </div>
+            <div className="flex items-start justify-between gap-3">
+              <span className="font-medium">{r.service}{r.quantity > 1 ? ` ×${r.quantity}` : ""}</span>
+              {showPaid ? <span className="tabular-nums">{r.paidCents ? `${formatCents(r.paidCents, r.currency)} paid` : <span className="text-muted">Nothing paid</span>}</span> : null}
+            </div>
+            <p className="text-muted">{[r.address, r.city].filter(Boolean).join(", ")}</p>
+            <p>{cleanerNames(r)}</p>
+          </li>
+        ))}
+      </ul>
+    <div className="hidden overflow-x-auto sm:block">
       <table className="w-full min-w-[46rem] text-sm">
         <thead className="bg-canvas text-left text-xs text-muted">
           <tr>
@@ -473,23 +510,13 @@ function ServiceTable({ rows, tz, showPaid, canCleaners, empty }: { rows: Servic
               <td className="px-4 py-2">{r.service}{r.quantity > 1 ? ` ×${r.quantity}` : ""}</td>
               <td className="px-4 py-2">{r.city}<span className="block text-xs text-muted">{r.address}</span></td>
               {showPaid ? <td className="px-4 py-2 text-right tabular-nums">{r.paidCents ? formatCents(r.paidCents, r.currency) : <span className="text-muted">—</span>}</td> : null}
-              <td className="px-4 py-2">
-                {r.cleaners.length === 0 ? (
-                  <Badge tone="pending">Unassigned</Badge>
-                ) : (
-                  r.cleaners.map((c, i) => (
-                    <span key={c.id}>
-                      {i > 0 ? ", " : ""}
-                      {canCleaners ? <Link href={`/dashboard/cleaners/${c.id}`} className="underline-offset-4 hover:underline">{c.name}</Link> : c.name}
-                    </span>
-                  ))
-                )}
-              </td>
+              <td className="px-4 py-2">{cleanerNames(r)}</td>
               <td className="px-4 py-2"><BookingStatusBadge status={r.status} /></td>
             </tr>
           ))}
         </tbody>
       </table>
     </div>
+    </>
   );
 }

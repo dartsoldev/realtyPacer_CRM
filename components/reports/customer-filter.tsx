@@ -163,7 +163,44 @@ export function CustomerFilter({ initialConditions, initialColumns, timezone, cu
         {result && result.rows.length === 0 ? (
           <p className="px-5 py-10 text-center text-sm text-muted">No customers match these filters.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* Phones: one card per customer so paid amounts and chosen columns stay visible. */}
+          <ul className="divide-y divide-line text-sm sm:hidden">
+            {result?.rows.map((r) => (
+              <li key={r.customerId} className="space-y-1.5 px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <Link href={`/dashboard/customers/${r.customerId}`} className="font-semibold text-brand underline-offset-4 hover:underline">{r.name}</Link>
+                  {result.moneyVisible ? <span className="font-semibold tabular-nums">{money(r.paidCents)}</span> : null}
+                </div>
+                <p className="text-xs text-muted">
+                  {r.bookings} booking{r.bookings === 1 ? "" : "s"} · {r.services} service{r.services === 1 ? "" : "s"}
+                </p>
+                {result.columns.length ? (
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                    {result.columns.map((c) => (
+                      <div key={c.key} className="contents">
+                        <dt className="text-muted">{c.label}</dt>
+                        <dd className="min-w-0 break-words">{cell(c.key, r.columns[c.key])}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null}
+                <ul className="space-y-1 border-l-2 border-line pl-3 text-xs text-muted">
+                  {r.lines.map((l) => (
+                    <li key={`${l.bookingId}-${l.service}-${l.date}`} className="flex items-start justify-between gap-2">
+                      <span>
+                        <Link href={`/dashboard/bookings/${l.bookingId}`} className="underline-offset-4 hover:underline">{fmtDate(l.date)}</Link> · <span className="text-ink">{l.service}{l.quantity > 1 ? ` ×${l.quantity}` : ""}</span> · {l.city} · {l.cleaners.length ? l.cleaners.join(", ") : "Unassigned"}
+                        {l.status !== "COMPLETED" ? <Badge tone="slate" className="ml-2">{BOOKING_STATUS_LABELS[l.status]}</Badge> : null}
+                      </span>
+                      {result.moneyVisible ? <span className="shrink-0 tabular-nums">{money(l.paidCents)}</span> : null}
+                    </li>
+                  ))}
+                  {r.moreLines ? <li>…and {r.moreLines} more (open the customer for full history)</li> : null}
+                </ul>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto sm:block">
             <table className="w-full min-w-[52rem] text-sm">
               <caption className="sr-only">Matching customers and their services</caption>
               <thead className="bg-canvas text-left text-xs text-muted">
@@ -204,6 +241,7 @@ export function CustomerFilter({ initialConditions, initialColumns, timezone, cu
               ))}
             </table>
           </div>
+          </>
         )}
         {result ? (
           <nav aria-label="Pages" className="flex items-center justify-between gap-3 border-t border-line px-4 py-3 text-sm text-muted">

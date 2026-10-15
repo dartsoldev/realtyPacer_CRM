@@ -38,7 +38,7 @@ export function LoyaltyEntryButton({ customerId, balance, compact }: { customerI
   }
   return (
     <>
-      <Button variant="secondary" size={compact ? "sm" : "md"} onClick={() => { setOpen(true); setPoints(""); setReason(""); setError(null); setRequestKey(newRequestKey()); }}>
+      <Button variant="secondary" size={compact ? "sm" : "md"} className="whitespace-nowrap" onClick={() => { setOpen(true); setPoints(""); setReason(""); setError(null); setRequestKey(newRequestKey()); }}>
         <Gift className="size-4" aria-hidden /> Adjust points
       </Button>
       <Modal title="Loyalty points entry" open={open} onClose={() => setOpen(false)}>

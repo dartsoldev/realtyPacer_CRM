@@ -97,12 +97,13 @@ export default function CalendarView({
     const e = arg.event.extendedProps as CalendarEvent;
     return (
       <div className="overflow-hidden px-0.5 text-xs leading-snug" style={{ color: COLORS[e.status].text }}>
-        <span className="font-semibold">{arg.timeText} </span>
-        <span className="font-semibold">{e.title}</span>
-        <span className="block">[{BOOKING_STATUS_LABELS[e.status]}]</span>
-        {e.services ? <span className="block truncate">{e.services}</span> : null}
-        {e.city ? <span className="block truncate">{e.city}</span> : null}
-        <span className="block truncate">{e.cleaners.length ? e.cleaners.join(", ") : "Unassigned"}</span>
+        <span className="block truncate font-semibold">
+          {arg.timeText} {e.title}
+        </span>
+        <span className="block truncate">{[e.services, e.city].filter(Boolean).join(" · ")}</span>
+        <span className="block truncate">
+          {e.cleaners.length ? e.cleaners.join(", ") : "Unassigned"} · {BOOKING_STATUS_LABELS[e.status]}
+        </span>
       </div>
     );
   }

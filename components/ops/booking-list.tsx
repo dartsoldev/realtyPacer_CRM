@@ -23,9 +23,9 @@ export function BookingList({ bookings, timezone, empty, showCustomer = true }: 
           <div className="min-w-0 space-y-0.5">
             {showCustomer ? <p className="font-medium">{b.customer.name}</p> : null}
             <p className="text-muted">{b.lineItems.map((l) => (l.quantity > 1 ? `${l.name} ×${l.quantity}` : l.name)).join(", ")}</p>
-            <p className="flex items-center gap-1 text-muted">
-              <MapPin className="size-3.5 shrink-0" aria-hidden />
-              <span className="truncate">{[b.address.line1, b.address.city].filter(Boolean).join(", ")}</span>
+            <p className="flex items-start gap-1 text-muted">
+              <MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+              <span className="min-w-0 break-words">{[b.address.line1, b.address.city].filter(Boolean).join(", ")}</span>
             </p>
             <p className="text-muted">{b.cleaners.length ? b.cleaners.map((c) => c.name).join(", ") : null}</p>
           </div>

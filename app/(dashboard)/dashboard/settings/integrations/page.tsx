@@ -24,11 +24,11 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
       <div className="space-y-6">
         <Card id="google-calendar">
           <CardHeader title="Google Calendar" description="Put scheduled bookings on a Google calendar." />
-          <GoogleCalendarCard status={{ ...status, redirectUri: `${getCoreEnv().APP_URL}${CALLBACK_PATH}` }} flash={{ ok: sp.google === "connected", error: googleError }} />
+          <GoogleCalendarCard status={{ ...status, redirectUri: `${getCoreEnv().APP_URL}${CALLBACK_PATH}` }} flash={{ ok: sp.google === "connected", error: googleError }} timeZone={user.organization.timezone} />
         </Card>
         <Card id="lead-sources">
           <CardHeader title="Website lead forms" description="Receive leads from your website forms through a secure server-to-server endpoint." />
-          <LeadSourcesCard sources={sources} />
+          <LeadSourcesCard sources={sources} timeZone={user.organization.timezone} />
         </Card>
         <Card>
           <CardHeader title="Other lead channels" />

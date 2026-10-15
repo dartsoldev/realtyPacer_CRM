@@ -11,6 +11,7 @@ import { parseCsv } from "@/lib/domain/csv-parse";
 import { isSafeHttpUrl } from "@/lib/domain/links";
 import { escapeRegex, normalizeEmail, OBJECT_ID_RE } from "@/lib/domain/normalize";
 import { parsePhone } from "@/lib/domain/phone";
+import { formatDate } from "@/lib/domain/time";
 import { isDateKey } from "@/lib/domain/zoned-time";
 import { AppError, Errors } from "@/lib/http/errors";
 import { recordActivity } from "@/modules/activities/service";
@@ -123,7 +124,7 @@ export type LeadRow = {
 };
 
 function summaryOf(l: LeadDoc): string {
-  if (l.category === "general") return [l.service?.requestedService, l.service?.preferredDate ? `preferred ${l.service.preferredDate}` : ""].filter(Boolean).join(" · ");
+  if (l.category === "general") return [l.service?.requestedService, l.service?.preferredDate ? `preferred ${formatDate(`${l.service.preferredDate}T12:00:00Z`, "UTC")}` : ""].filter(Boolean).join(" · ");
   return [l.realEstate?.intent ? l.realEstate.intent[0]!.toUpperCase() + l.realEstate.intent.slice(1) : "", l.realEstate?.areaOfInterest].filter(Boolean).join(" · ");
 }
 

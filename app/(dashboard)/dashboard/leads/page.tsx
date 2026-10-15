@@ -48,7 +48,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
           ) : null
         }
       />
-      <nav aria-label="Lead categories" className="mb-4 flex gap-2 border-b border-line">
+      <nav aria-label="Lead categories" className="mb-4 flex gap-2 overflow-x-auto border-b border-line">
         {(["general", "real_estate"] as const).map((c) => {
           const active = q.category === c;
           const count = c === "general" ? result.counts.generalNew : result.counts.realEstateNew;
@@ -57,7 +57,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
               key={c}
               href={`/dashboard/leads?category=${c}`}
               aria-current={active ? "page" : undefined}
-              className={`-mb-px inline-flex min-h-11 items-center gap-2 border-b-2 px-3 text-sm font-medium ${active ? "border-brand text-brand" : "border-transparent text-muted hover:text-ink"}`}
+              className={`-mb-px inline-flex min-h-11 items-center gap-2 whitespace-nowrap border-b-2 px-3 text-sm font-medium ${active ? "border-brand text-brand" : "border-transparent text-muted hover:text-ink"}`}
             >
               {LEAD_CATEGORY_LABELS[c]}
               {count ? <Badge tone="info">{count} new</Badge> : null}
@@ -89,7 +89,24 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             Add a lead, import a CSV, or connect a website form under Settings → Integrations.
           </EmptyState>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <ul className="divide-y divide-line text-sm sm:hidden">
+            {result.items.map((l) => (
+              <li key={l.id} className="space-y-1 px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <Link href={`/dashboard/leads/${l.id}`} className="font-medium text-brand underline-offset-4 hover:underline">{l.name}</Link>
+                  <Badge tone={LEAD_STATUS_TONE[l.status]}>{LEAD_STATUS_LABELS[l.status]}</Badge>
+                </div>
+                {l.summary ? <p>{l.summary}</p> : null}
+                <p className="text-muted">{[l.phoneDisplay ?? l.email, l.city].filter(Boolean).join(" · ") || "—"}</p>
+                <p className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                  <span>{formatDate(l.receivedAt, tz)} · {l.source || LEAD_CHANNEL_LABELS[l.channel as keyof typeof LEAD_CHANNEL_LABELS]}</span>
+                  {l.assignedTo ? <span>· {l.assignedTo.name}</span> : <Badge tone="pending">Unassigned</Badge>}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto sm:block">
             <table className="w-full min-w-[52rem] text-sm">
               <thead className="bg-canvas text-left text-xs uppercase tracking-wide text-muted">
                 <tr>
@@ -109,14 +126,14 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
                     <td className="px-5 py-3">
                       <Link href={`/dashboard/leads/${l.id}`} className="font-medium underline-offset-4 hover:underline">{l.name}</Link>
                     </td>
-                    <td className="px-3 py-3 text-muted">{[l.phoneDisplay, l.email].filter(Boolean).join(" · ") || "—"}</td>
+                    <td className="px-3 py-3 text-muted">{l.phoneDisplay || l.email ? <>{l.phoneDisplay ? <span className="block whitespace-nowrap">{l.phoneDisplay}</span> : null}{l.email ? <span className="block break-all">{l.email}</span> : null}</> : "—"}</td>
                     <td className="px-3 py-3">{l.summary || <span className="text-muted">—</span>}</td>
                     <td className="px-3 py-3 text-muted">{l.city || "—"}</td>
                     <td className="px-3 py-3 text-muted">
                       {l.source || "—"}
                       <span className="block text-xs">{LEAD_CHANNEL_LABELS[l.channel as keyof typeof LEAD_CHANNEL_LABELS]}</span>
                     </td>
-                    <td className="px-3 py-3 text-muted">{formatDate(l.receivedAt, tz)}</td>
+                    <td className="whitespace-nowrap px-3 py-3 text-muted">{formatDate(l.receivedAt, tz)}</td>
                     <td className="px-3 py-3">{l.assignedTo?.name ?? <Badge tone="pending">Unassigned</Badge>}</td>
                     <td className="px-3 py-3"><Badge tone={LEAD_STATUS_TONE[l.status]}>{LEAD_STATUS_LABELS[l.status]}</Badge></td>
                   </tr>
@@ -124,6 +141,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
               </tbody>
             </table>
           </div>
+          </>
         )}
         <Pagination page={result.page} totalPages={result.totalPages} total={result.total} basePath="/dashboard/leads" params={keep} />
       </Card>

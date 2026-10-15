@@ -44,7 +44,7 @@ const TARGETS: { value: string; label: string }[] = [
   { value: "externalId", label: "Submission / entry id (prevents duplicates)" },
 ];
 
-const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-CA", { dateStyle: "medium", timeStyle: "short" }) : "Nothing received yet");
+const fmtIn = (timeZone: string) => (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-CA", { timeZone, dateStyle: "medium", timeStyle: "short" }) : "Nothing received yet");
 
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [done, setDone] = useState(false);
@@ -131,15 +131,16 @@ type LogRow = { at: string; outcome: string; externalId: string | null; leadId: 
 
 function exampleFor(s: LeadSourceView) {
   const body = s.defaultCategory === "real_estate"
-    ? `{"submission_id":"1001","name":"Jordan Example","phone":"416-555-0100","email":"jordan@example.com","city":"Mississauga","intent":"buyer","area":"Port Credit","budget":"750000"}`
-    : `{"submission_id":"1001","name":"Jordan Example","phone":"416-555-0100","email":"jordan@example.com","city":"Mississauga","service":"Sofa cleaning","preferred_date":"2026-11-02","message":"Two sofas"}`;
+    ? `{"submission_id":"1001","name":"Jordan Example","phone":"416-555-0100","email":"jordan@example.test","city":"Mississauga","intent":"buyer","area":"Port Credit","budget":"750000"}`
+    : `{"submission_id":"1001","name":"Jordan Example","phone":"416-555-0100","email":"jordan@example.test","city":"Mississauga","service":"Sofa cleaning","preferred_date":"2026-11-02","message":"Two sofas"}`;
   return {
     curl: `curl -X POST "${s.endpoint}" \\\n  -H "Authorization: Bearer $REALTYPACER_LEAD_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '${body}'`,
     node: `// Runs on your website's SERVER (e.g. a form handler or webhook relay) — never in the browser.\nconst res = await fetch("${s.endpoint}", {\n  method: "POST",\n  headers: {\n    Authorization: \`Bearer \${process.env.REALTYPACER_LEAD_KEY}\`,\n    "Content-Type": "application/json",\n    "Idempotency-Key": String(entry.id), // same id on retries = no duplicate lead\n  },\n  body: JSON.stringify(entry.fields),\n});\n// 201 created · 200 already received · 401 bad key · 422 missing name/contact · 429 slow down`,
   };
 }
 
-export function LeadSourcesCard({ sources }: { sources: LeadSourceView[] }) {
+export function LeadSourcesCard({ sources, timeZone }: { sources: LeadSourceView[]; timeZone: string }) {
+  const fmt = fmtIn(timeZone);
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");

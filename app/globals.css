@@ -95,3 +95,11 @@ dialog::backdrop {
   font-size: 1.125rem;
   font-weight: 600;
 }
+
+/* Room for three lines (customer / service · city / cleaner · status) in time-grid views; clip anything longer. */
+.rp-calendar .fc .fc-timegrid-slot {
+  height: 2.25em;
+}
+.rp-calendar .fc .fc-event-main {
+  overflow: hidden;
+}

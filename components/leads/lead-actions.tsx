@@ -209,7 +209,7 @@ export function LeadWorkflow({ leadId, status, assignedTo, staff }: { leadId: st
   }
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4">
         <Field label="Status">
           {(p) => (
             <Select id={p.id} value={status} disabled={busy !== null || status === "converted"} onChange={(e) => void patch({ status: e.target.value }, "status")}>

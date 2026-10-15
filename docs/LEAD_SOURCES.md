@@ -41,7 +41,7 @@
    Idempotency-Key: <form entry id>          (optional; or map a submission-id field)
 
    {"submission_id":"1001","name":"Jordan Example","phone":"416-555-0100",
-    "email":"jordan@example.com","city":"Mississauga","service":"Sofa cleaning",
+    "email":"jordan@example.test","city":"Mississauga","service":"Sofa cleaning",
     "preferred_date":"2026-11-02","message":"Two sofas"}
    ```
 

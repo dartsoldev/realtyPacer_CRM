@@ -78,3 +78,42 @@ export function CustomFieldsEditor({ customerId, defs, values }: { customerId: s
     </>
   );
 }
+
+/**
+ * Upcoming bookings keep the address they were booked with. After an address
+ * edit, offer to move each one to the current address (audited, explicit).
+ */
+export function OutdatedAddressNotice({ bookings }: { bookings: { bookingId: string; reference: string; date: string; addressId: string; version: number; current: string }[] }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  async function update(b: (typeof bookings)[number]) {
+    setBusy(b.bookingId);
+    setError(null);
+    const res = await apiRequest(`/api/v1/bookings/${b.bookingId}/address`, { method: "POST", body: { addressId: b.addressId, expectedVersion: b.version } });
+    setBusy(null);
+    if (!res.ok) return setError(res.message);
+    router.refresh();
+  }
+  if (!bookings.length) return null;
+  return (
+    <div role="status" className="space-y-2 border-b border-line bg-pending-soft px-5 py-3 text-sm">
+      <p className="font-medium">
+        {bookings.length === 1 ? "1 upcoming booking still uses the previous address." : `${bookings.length} upcoming bookings still use the previous address.`} Past jobs always keep the address they were done at.
+      </p>
+      <ul className="space-y-1">
+        {bookings.map((b) => (
+          <li key={b.bookingId} className="flex flex-wrap items-center gap-2">
+            <span>
+              {b.date} · {b.reference} → <span className="font-medium">{b.current}</span>
+            </span>
+            <Button size="sm" variant="secondary" loading={busy === b.bookingId} onClick={() => void update(b)}>
+              Use current address
+            </Button>
+          </li>
+        ))}
+      </ul>
+      {error ? <Alert tone="danger" title="Not updated">{error}</Alert> : null}
+    </div>
+  );
+}

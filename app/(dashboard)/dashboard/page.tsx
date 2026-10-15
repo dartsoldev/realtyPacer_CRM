@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CalendarClock, CalendarPlus, CheckCircle2, Inbox, PlayCircle, UserPlus, UserX, type LucideIcon } from "lucide-react";
+import { CalendarPlus, CheckCircle2, Inbox, UserPlus, type LucideIcon } from "lucide-react";
 import { AddLeadButton } from "@/components/leads/lead-actions";
 import { QuickCustomerFilter } from "@/components/reports/quick-filter";
 import { fieldsWithOptions } from "@/modules/reports/filters";
@@ -9,7 +9,6 @@ import { assignableStaff, listLeads } from "@/modules/leads/service";
 import { BookingList } from "@/components/ops/booking-list";
 import { JobCards } from "@/components/ops/my-jobs";
 import { AccessDenied } from "@/components/shell/access";
-import { plural } from "@/components/shell/nav-config";
 import { Alert } from "@/components/ui/alert";
 import { buttonClasses, LinkButton } from "@/components/ui/button";
 import { Card, CardHeader, PageHeader } from "@/components/ui/layout";
@@ -131,7 +130,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <div className="space-y-4 p-5">
             <QuickCustomerFilter cities={filterFields.find((f) => f.key === "city")?.options ?? []} services={filterFields.find((f) => f.key === "service")?.options ?? []} />
             {filterTotals ? (
-              <dl className="grid gap-3 text-sm sm:grid-cols-4">
+              <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                 <div className="rounded-lg bg-canvas p-3"><dt className="text-muted">Customers served</dt><dd className="text-xl font-semibold tabular-nums">{filterTotals.customers}</dd></div>
                 <div className="rounded-lg bg-canvas p-3"><dt className="text-muted">Completed bookings</dt><dd className="text-xl font-semibold tabular-nums">{filterTotals.bookings}</dd></div>
                 <div className="rounded-lg bg-canvas p-3"><dt className="text-muted">Services performed</dt><dd className="text-xl font-semibold tabular-nums">{filterTotals.services}</dd></div>
@@ -145,7 +144,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       {ops ? (
         <div className="mb-8 grid gap-6 xl:grid-cols-2">
           <Card>
-            <CardHeader title={`Today · ${ops.todayCount}`} description={formatDate(`${ops.today}T12:00:00Z`, "UTC")} actions={<Link href={`/dashboard/calendar?date=${ops.today}&view=timeGridDay`} className="text-sm font-medium text-brand underline-offset-4 hover:underline">Calendar</Link>} />
+            <CardHeader title={`Today · ${ops.todayCount}`} description={`${formatDate(`${ops.today}T12:00:00Z`, "UTC")}${ops.inProgress ? ` · ${ops.inProgress} in progress` : ""}`} actions={<Link href={`/dashboard/calendar?date=${ops.today}&view=timeGridDay`} className="text-sm font-medium text-brand underline-offset-4 hover:underline">Calendar</Link>} />
             <BookingList bookings={ops.todayJobs} timezone={tz} empty="No jobs today." />
           </Card>
           <Card>
@@ -170,17 +169,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
       {ops ? (
         <>
-          <section aria-labelledby="ops-h" className="space-y-3">
-            <h2 id="ops-h" className="text-sm font-semibold uppercase tracking-wide text-muted">{plural(t.booking)} (count of jobs)</h2>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <StatLink label="Today" value={ops.todayCount} icon={CalendarClock} href={`/dashboard/bookings?from=${ops.today}&to=${ops.today}`} note="Not cancelled" />
-              <StatLink label="Tomorrow" value={ops.tomorrowCount} icon={CalendarClock} href={`/dashboard/bookings?from=${ops.tomorrow}&to=${ops.tomorrow}`} note="Not cancelled" />
-              <StatLink label="Unassigned upcoming" value={ops.unassignedUpcoming} icon={UserX} href="/dashboard/bookings?unassigned=1&status=SCHEDULED" note="Scheduled with no cleaner" />
-              <StatLink label="In progress" value={ops.inProgress} icon={PlayCircle} href="/dashboard/bookings?status=IN_PROGRESS" />
-            </div>
-          </section>
-
-          <section aria-labelledby="done-h" className="mt-8 space-y-3">
+          <section aria-labelledby="done-h" className="space-y-3">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <h2 id="done-h" className="text-sm font-semibold uppercase tracking-wide text-muted">
                 Completed {formatDate(`${ops.completed.from}T12:00:00Z`, "UTC")} – {formatDate(`${ops.completed.to}T12:00:00Z`, "UTC")}

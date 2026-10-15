@@ -417,6 +417,8 @@ export type ServiceLineRow = {
   cleaners: { id: string; name: string }[];
   status: BookingStatus;
   currency: string;
+  /** Upcoming only: the booking still uses an older version of an address the customer has since edited. */
+  outdatedAddress: { addressId: string; version: number; current: string } | null;
 };
 
 /**
@@ -446,7 +448,7 @@ export async function customerServiceLines(user: CurrentUser, customerId: string
         rows: [
           { $skip: (page - 1) * pageSize },
           { $limit: pageSize },
-          { $project: { reference: 1, scheduledStartAt: 1, status: 1, currency: 1, assignedCleanerIds: 1, line1: "$addressSnapshot.line1", city: "$addressSnapshot.city", line: "$lineItems" } },
+          { $project: { reference: 1, scheduledStartAt: 1, status: 1, currency: 1, version: 1, serviceAddressId: 1, assignedCleanerIds: 1, snap: "$addressSnapshot", line1: "$addressSnapshot.line1", city: "$addressSnapshot.city", line: "$lineItems" } },
         ],
         count: [{ $count: "n" }],
       },
@@ -458,6 +460,12 @@ export async function customerServiceLines(user: CurrentUser, customerId: string
   const names = new Map(cleaners.map((x) => [String(x._id), x.name]));
   const canMoney = user.permissions.has("financials:read");
   const total = agg?.count[0]?.n ?? 0;
+  // Upcoming jobs keep the address snapshot taken when booked; flag those whose address has been edited since.
+  const addrKey = (a: { line1?: string | null; line2?: string | null; city?: string | null; region?: string | null; postalCode?: string | null }) => [a.line1, a.line2, a.city, a.region, a.postalCode].map((x) => String(x ?? "").trim().toLowerCase()).join("|");
+  const currentAddresses =
+    opts.scope === "upcoming" && rows.length
+      ? new Map((await ServiceAddress.find({ _id: { $in: rows.map((r) => r.serviceAddressId).filter(Boolean) }, organizationId: user.organizationId, archivedAt: null }).lean()).map((a) => [String(a._id), a]))
+      : new Map();
   const items: ServiceLineRow[] = rows.map((r) => {
     const line = r.line as { _id: Types.ObjectId; name: string; quantity: number; allocatedCents?: number };
     return {
@@ -473,6 +481,11 @@ export async function customerServiceLines(user: CurrentUser, customerId: string
       cleaners: (r.assignedCleanerIds as Types.ObjectId[]).map((id) => ({ id: String(id), name: names.get(String(id)) ?? "Former cleaner" })),
       status: r.status as BookingStatus,
       currency: String(r.currency),
+      outdatedAddress: (() => {
+        const cur = currentAddresses.get(String(r.serviceAddressId));
+        if (!cur || addrKey(cur) === addrKey((r.snap ?? {}) as Record<string, string>)) return null;
+        return { addressId: String(cur._id), version: Number(r.version), current: [cur.line1, cur.city].filter(Boolean).join(", ") };
+      })(),
     };
   });
   return { items, page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) };

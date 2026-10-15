@@ -7,7 +7,7 @@ import { Lead, LeadSubmissionLog } from "@/lib/db/models/lead";
 import { googleMapsUrl } from "@/lib/domain/links";
 import { addDaysToKey, localDateKey } from "@/lib/domain/zoned-time";
 import { decryptSecret, encryptSecret } from "@/lib/security/encryption";
-import { createBooking, operationsSummary, transitionBooking, updateBooking } from "@/modules/bookings/service";
+import { changeBookingAddress, createBooking, operationsSummary, transitionBooking, updateBooking } from "@/modules/bookings/service";
 import { assignableCleaners, createCleaner } from "@/modules/cleaners/service";
 import { createDefinition, updateDefinition } from "@/modules/custom-fields/service";
 import { listAddresses, updateAddress } from "@/modules/customers/addresses";
@@ -122,7 +122,7 @@ describe("customer & service filter (Mississauga AND Sofa)", () => {
 
 describe("customer profile", () => {
   it("lists one row per service with the amount actually paid, separates bookings from services, and keeps past addresses when the address is edited", async () => {
-    const { admin, alice } = await clientWorld();
+    const { admin, S, alice } = await clientWorld();
     const history = await customerServiceLines(admin, alice.customer.id, { scope: "history" });
     expect(history.items.map((i) => [i.service, i.paidCents, i.city, i.status])).toEqual(
       expect.arrayContaining([
@@ -138,6 +138,8 @@ describe("customer profile", () => {
 
     const before = (await listAddresses(admin, alice.customer.id))[0]!;
     const oldMap = googleMapsUrl(before);
+    const future = await createBooking(admin, bookingBody({ customerId: alice.customer.id, addressId: before.id, serviceId: S, date: "2031-03-03", startTime: "09:00" }));
+    expect((await customerServiceLines(admin, alice.customer.id, { scope: "upcoming" })).items[0]!.outdatedAddress).toBeNull();
     await updateAddress(admin, alice.customer.id, before.id, { label: "Home", line1: "9 New Road", line2: "", city: "Oakville", region: "ON", postalCode: "", country: "Canada", accessInstructions: "", isPrimary: true, links: [] });
     const after = (await listAddresses(admin, alice.customer.id))[0]!;
     expect(after.city).toBe("Oakville");
@@ -145,6 +147,13 @@ describe("customer profile", () => {
     expect(googleMapsUrl(after)).toContain("Oakville");
     const again = await customerServiceLines(admin, alice.customer.id, { scope: "history" });
     expect(again.items.every((i) => i.city === "Mississauga" && i.address.includes("Alice Street"))).toBe(true);
+    // The upcoming job still has the old snapshot: flagged until staff move it explicitly.
+    const upcoming = (await customerServiceLines(admin, alice.customer.id, { scope: "upcoming" })).items[0]!;
+    expect(upcoming.city).toBe("Mississauga");
+    expect(upcoming.outdatedAddress).toEqual({ addressId: before.id, version: future.booking.version, current: "9 New Road, Oakville" });
+    await changeBookingAddress(admin, future.booking.id, { addressId: before.id, expectedVersion: future.booking.version });
+    const moved = (await customerServiceLines(admin, alice.customer.id, { scope: "upcoming" })).items[0]!;
+    expect(moved).toMatchObject({ city: "Oakville", outdatedAddress: null });
   });
 
   it("hides paid amounts from users without financial access", async () => {
