@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { MapPin } from "lucide-react";
 import { BookingActions } from "./booking-actions";
-import { MapLink, PhoneLink } from "./contact";
+import { CallActions } from "@/components/calls/call-actions";
+import { MapLink } from "./contact";
 import { BookingStatusBadge } from "./status";
 import { formatDate } from "@/lib/domain/time";
 import type { BookingDTO } from "@/modules/bookings/service";
@@ -23,7 +24,7 @@ export function JobCards({ jobs, timezone }: { jobs: BookingDTO[]; timezone: str
           </div>
           <div className="space-y-1 text-sm">
             <p className="font-medium">{j.customer.name}</p>
-            <PhoneLink e164={j.customer.phone} display={j.customer.phoneDisplay} />
+            <CallActions e164={j.customer.phone} display={j.customer.phoneDisplay} target={{ type: "customer", id: j.customer.id, name: j.customer.name, bookingId: j.id }} canLog={false} browserCalling={false} />
           </div>
           <div className="space-y-1 text-sm">
             <p className="flex items-start gap-1">

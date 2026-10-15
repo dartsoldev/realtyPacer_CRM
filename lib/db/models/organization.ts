@@ -65,6 +65,17 @@ const organizationSchema = new Schema(
       ),
       default: () => ({}),
     },
+    /** Customer-facing booking emails. Off until an administrator turns them on. */
+    notifications: {
+      type: new Schema(
+        {
+          /** off: never; manual: staff preview and send per booking; auto: also on create/reschedule/cancel. */
+          customerBookingEmails: { type: String, enum: ["off", "manual", "auto"], default: "off" },
+        },
+        { _id: false },
+      ),
+      default: () => ({}),
+    },
     scheduling: {
       type: new Schema(
         {

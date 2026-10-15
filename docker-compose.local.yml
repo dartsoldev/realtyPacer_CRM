@@ -1,0 +1,32 @@
+# LOCAL DEVELOPMENT / STAGING DEPENDENCIES ONLY — never use for production.
+# Single-node MongoDB replica set, Mailpit (SMTP sink with web UI) and S3Mock
+# (S3-compatible storage). Credentials below are local placeholders.
+#
+#   docker compose -f docker-compose.local.yml up -d
+#   MONGODB_URI=mongodb://127.0.0.1:27017/realtypacer?replicaSet=rs0&directConnection=true
+#   SMTP_HOST=127.0.0.1 SMTP_PORT=1025 SMTP_SECURE=false   (inbox UI: http://localhost:8025)
+#   S3_ENDPOINT=http://127.0.0.1:9090 S3_BUCKET=realtypacer-local S3_ACCESS_KEY_ID=local S3_SECRET_ACCESS_KEY=local-secret S3_FORCE_PATH_STYLE=true
+services:
+  mongo:
+    image: mongo:8.0
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports: ["127.0.0.1:27017:27017"]
+    volumes: [mongo-data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] }).ok }"]
+      interval: 5s
+      retries: 30
+
+  mailpit:
+    image: axllent/mailpit:v1.20
+    ports: ["127.0.0.1:1025:1025", "127.0.0.1:8025:8025"]
+
+  # S3-compatible mock for local development (no auth enforcement — never for production).
+  s3:
+    image: adobe/s3mock:5.2.2
+    environment:
+      COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: realtypacer-local
+    ports: ["127.0.0.1:9090:9090"]
+
+volumes:
+  mongo-data:

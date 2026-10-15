@@ -44,6 +44,7 @@ export const organizationUpdateSchema = z
       })
       .strict()
       .optional(),
+    notifications: z.object({ customerBookingEmails: z.enum(["off", "manual", "auto"]) }).strict().optional(),
     /** Explicit, superadmin-only. Snapshotted onto bookings when charges are finalized. */
     tax: z
       .object({
@@ -66,6 +67,7 @@ export type OrganizationSettings = {
   contact: Record<string, string>;
   terminology: { customer: string; booking: string; provider: string };
   tax: { enabled: boolean; rateBasisPoints: number; label: string };
+  notifications: { customerBookingEmails: "off" | "manual" | "auto" };
   updatedAt: string;
 };
 
@@ -73,7 +75,9 @@ function toSettings(org: Record<string, unknown> & { _id: unknown; updatedAt?: D
   const contact = (org.contact ?? {}) as Record<string, string | undefined>;
   const terminology = (org.terminology ?? {}) as Record<string, string | undefined>;
   const tax = (org.tax ?? {}) as { enabled?: boolean; rateBasisPoints?: number; label?: string };
+  const notifications = (org.notifications ?? {}) as { customerBookingEmails?: "off" | "manual" | "auto" };
   return {
+    notifications: { customerBookingEmails: notifications.customerBookingEmails ?? "off" },
     tax: { enabled: Boolean(tax.enabled), rateBasisPoints: tax.rateBasisPoints ?? 0, label: tax.label ?? "" },
     id: String(org._id),
     name: String(org.name),
@@ -119,6 +123,7 @@ export async function updateOrganizationSettings(actor: CurrentUser, input: z.in
   for (const f of ["name", "displayName", "timezone", "currency"] as const) if (input[f] !== undefined) set[f] = input[f];
   if (input.contact) for (const [k, v] of Object.entries(input.contact)) set[`contact.${k}`] = v;
   if (input.terminology) for (const [k, v] of Object.entries(input.terminology)) set[`terminology.${k}`] = v;
+  if (input.notifications) set["notifications.customerBookingEmails"] = input.notifications.customerBookingEmails;
   if (input.tax) set.tax = input.tax.enabled ? input.tax : { enabled: false, rateBasisPoints: 0, label: "" };
 
   const updated = await Organization.findByIdAndUpdate(actor.organizationId, { $set: set }, { returnDocument: "after", runValidators: true }).lean();

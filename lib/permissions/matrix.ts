@@ -49,6 +49,24 @@ export const PERMISSIONS = [
   "loyalty:read",
   /** Grant, redeem, correct and reverse loyalty points. */
   "loyalty:adjust",
+  /** Log calls (phone app or browser) against customers, cleaners and bookings. */
+  "calls:log",
+  /** Place outbound calls from the browser (when CALLING_MODE=browser is configured). Costs money. */
+  "calls:browser",
+  /** Send optional booking confirmation / change emails to customers. */
+  "bookings:notify",
+  /** Import customers from CSV. */
+  "customers:import",
+  /** View property/booking photos and documents (office). */
+  "attachments:read",
+  /** Upload property/booking photos and documents (office). */
+  "attachments:write",
+  /** Remove any attachment (office). Uploaders may always remove their own. */
+  "attachments:delete",
+  /** Cleaners: view and add photos on bookings they are assigned to. */
+  "attachments:assigned",
+  /** Operational diagnostics: outbox, background jobs, configuration status. */
+  "system:diagnostics",
   // Administration
   "users:read",
   "users:invite",
@@ -86,6 +104,13 @@ const OPERATIONAL: Permission[] = [
   "pricing:read",
   "bookings:price_override",
   "activities:write",
+  "calls:log",
+  "calls:browser",
+  "bookings:notify",
+  "customers:import",
+  "attachments:read",
+  "attachments:write",
+  "attachments:delete",
 ];
 
 /** Permissions every STAFF user has without explicit grants. */
@@ -97,6 +122,8 @@ export const STAFF_BASE: Permission[] = [
   "bookings:read",
   "calendar:read",
   "activities:write",
+  "calls:log",
+  "attachments:read",
 ];
 
 /** Operational permissions an admin may explicitly grant to STAFF. */
@@ -119,6 +146,11 @@ export const STAFF_GRANTABLE: Permission[] = [
   "views:share",
   "loyalty:read",
   "loyalty:adjust",
+  "calls:browser",
+  "bookings:notify",
+  "customers:import",
+  "attachments:write",
+  "attachments:delete",
 ];
 
 const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
@@ -133,10 +165,11 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "users:manage",
     "organization:read",
     "organization:update",
+    "system:diagnostics",
   ],
   STAFF: STAFF_BASE,
   // Only their own assigned jobs; no customer directory, pricing or office notes.
-  CLEANER: ["dashboard:view", "account:self", "bookings:read_assigned", "bookings:transition_assigned"],
+  CLEANER: ["dashboard:view", "account:self", "bookings:read_assigned", "bookings:transition_assigned", "attachments:assigned"],
 };
 
 export function permissionsFor(role: Role, grants: readonly string[] = []): Set<Permission> {

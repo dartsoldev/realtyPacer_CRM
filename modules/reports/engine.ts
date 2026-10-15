@@ -315,31 +315,37 @@ export async function runCustomerReport(user: CurrentUser, def: ReportDefinition
   const pageSize = opts.exportAll ? (opts.maxRows ?? 10_000) : Math.min(opts.pageSize ?? 25, MAX_PAGE_SIZE);
   const page = opts.exportAll ? 1 : Math.max(1, opts.page ?? 1);
   const sort = sortStage(def, { customer: "name", bookings: "bookings", lines: "lines", lastServiceDate: "lastServiceDate", netCents: "netCents", chargedCents: "chargedCents", paidCents: "paidCents", outstandingCents: "outstandingCents" }, { netCents: -1, _id: 1 });
-  const [res] = await Booking.aggregate<{ totals: Record<string, number>[]; count: { n: number }[]; rows: Record<string, unknown>[]; points: { total: number }[] }>(
+  const customerLookup: PipelineStage[] = [
+    { $lookup: { from: Customer.collection.name, localField: "_id", foreignField: "_id", as: "c", pipeline: [{ $project: { name: 1, searchName: 1, pointsBalance: 1, outstandingCents: 1, creditCents: 1 } }] } },
+    { $unwind: "$c" },
+    { $addFields: { name: "$c.searchName" } },
+  ];
+  // Join customer details only for the page shown (all rows only when sorting by name).
+  const byName = "name" in sort;
+  const paging: PipelineStage[] = [{ $sort: sort }, { $skip: (page - 1) * pageSize }, { $limit: pageSize }];
+  const [res] = await Booking.aggregate<{ totals: Record<string, number>[]; count: { n: number }[]; rows: Record<string, unknown>[]; ids: { _id: Types.ObjectId }[] }>(
     [
       ...stages,
       {
         $facet: {
           totals: [{ $group: { _id: null, customers: { $addToSet: "$customerId" }, bookings: { $addToSet: "$bookingId" }, lines: { $sum: 1 }, ...MONEY_SUMS } }, { $addFields: { customers: { $size: "$customers" }, bookings: { $size: "$bookings" } } }],
-          // One row per distinct customer; current points looked up once per customer.
           rows: [
             { $group: { _id: "$customerId", b: { $addToSet: "$bookingId" }, lines: { $sum: 1 }, lastServiceDate: { $max: "$serviceDate" }, netCents: { $sum: "$netCents" }, chargedCents: { $sum: "$chargedCents" }, paidCents: { $sum: "$paidCents" }, outstandingCents: { $sum: "$outstandingCents" } } },
             { $addFields: { bookings: { $size: "$b" } } },
             { $project: { b: 0 } },
-            { $lookup: { from: Customer.collection.name, localField: "_id", foreignField: "_id", as: "c", pipeline: [{ $project: { name: 1, searchName: 1, pointsBalance: 1, outstandingCents: 1, creditCents: 1 } }] } },
-            { $unwind: "$c" },
-            { $addFields: { name: "$c.searchName" } },
-            { $sort: sort },
-            { $skip: (page - 1) * pageSize },
-            { $limit: pageSize },
+            ...((byName ? [...customerLookup, ...paging] : [...paging, ...customerLookup]) as never[]),
           ],
           count: [{ $group: { _id: "$customerId" } }, { $count: "n" }],
-          points: [{ $group: { _id: "$customerId" } }, { $lookup: { from: Customer.collection.name, localField: "_id", foreignField: "_id", as: "c", pipeline: [{ $project: { pointsBalance: 1 } }] } }, { $unwind: "$c" }, { $group: { _id: null, total: { $sum: "$c.pointsBalance" } } }],
+          ids: user.permissions.has("loyalty:read") ? [{ $group: { _id: "$customerId" } }] : [{ $limit: 0 }],
         },
       },
     ],
     { allowDiskUse: true },
   );
+  // Current points of all matched customers: one indexed query instead of a join per customer.
+  const pointsAgg = res?.ids.length
+    ? await Customer.aggregate<{ total: number }>([{ $match: { _id: { $in: res.ids.map((x) => x._id) }, organizationId: new Types.ObjectId(user.organizationId) } }, { $group: { _id: null, total: { $sum: "$pointsBalance" } } }])
+    : [];
   const t = res?.totals[0] ?? {};
   const total = res?.count[0]?.n ?? 0;
   const money = canMoney(user);
@@ -386,7 +392,7 @@ export async function runCustomerReport(user: CurrentUser, def: ReportDefinition
       chargedCents: mv(t.chargedCents),
       paidCents: mv(t.paidCents),
       outstandingCents: mv(t.outstandingCents),
-      pointsTotal: points ? (res?.points[0]?.total ?? 0) : null,
+      pointsTotal: points ? (pointsAgg[0]?.total ?? 0) : null,
     },
     breakdowns: [],
     page,
@@ -437,8 +443,8 @@ export async function runCashReport(user: CurrentUser, def: ReportDefinition, op
         method: 1,
         parts: {
           $concatArrays: [
-            { $map: { input: "$allocations", as: "a", in: { amountCents: "$$a.amountCents", bookingId: "$$a.bookingId", lineItemId: "$$a.lineItemId", serviceId: "$$a.serviceId" } } },
-            [{ amountCents: { $subtract: ["$amountCents", { $sum: "$allocations.amountCents" }] }, bookingId: null, lineItemId: null, serviceId: null }],
+            { $map: { input: "$allocations", as: "a", in: { amountCents: "$$a.amountCents", bookingId: "$$a.bookingId", lineItemId: "$$a.lineItemId", serviceId: "$$a.serviceId", bookingReference: "$$a.bookingReference", city: "$$a.city", cityNormalized: "$$a.cityNormalized", serviceName: "$$a.serviceName" } } },
+            [{ amountCents: { $subtract: ["$amountCents", { $sum: "$allocations.amountCents" }] }, bookingId: null, lineItemId: null, serviceId: null, bookingReference: null, city: null, cityNormalized: null, serviceName: null }],
           ],
         },
       },
@@ -458,15 +464,15 @@ export async function runCashReport(user: CurrentUser, def: ReportDefinition, op
   const stages: PipelineStage[] = [
     ...receiptParts,
     { $unionWith: { coll: "refunds", pipeline: refundParts as never } },
-    { $lookup: { from: Booking.collection.name, localField: "parts.bookingId", foreignField: "_id", as: "bk", pipeline: [{ $project: { reference: 1, city: "$addressSnapshot.city", cityNormalized: "$addressSnapshot.cityNormalized", lineItems: { _id: 1, name: 1 } } }] } },
+    // City/service/reference come from the snapshot stored with each allocation (see db:migrate for older records).
     {
       $addFields: {
         amountCents: "$parts.amountCents",
         serviceId: "$parts.serviceId",
-        bookingReference: { $first: "$bk.reference" },
-        city: { $ifNull: [{ $first: "$bk.city" }, null] },
-        cityNormalized: { $ifNull: [{ $first: "$bk.cityNormalized" }, null] },
-        service: { $first: { $map: { input: { $filter: { input: { $ifNull: [{ $first: "$bk.lineItems" }, []] }, as: "l", cond: { $eq: ["$$l._id", "$parts.lineItemId"] } } }, as: "l", in: "$$l.name" } } },
+        bookingReference: "$parts.bookingReference",
+        city: { $ifNull: ["$parts.city", null] },
+        cityNormalized: { $ifNull: ["$parts.cityNormalized", null] },
+        service: "$parts.serviceName",
       },
     },
   ];

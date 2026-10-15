@@ -486,7 +486,7 @@ export function ReportBuilder({ modes, initial, timezone, currency, canExport, c
             <div>
               <h2 id="results-h" className="text-base font-semibold">{REPORT_MODE_LABELS[result.mode]}</h2>
               <p className="text-xs text-muted">
-                {result.range.basis}. As of {formatDateTime(result.asOf, result.timezone)}.
+                {result.range.basis} · as of {formatDateTime(result.asOf, result.timezone)}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">

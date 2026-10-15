@@ -16,6 +16,13 @@ export const RATE_LIMITS = {
   tokenSubmitByIp: { bucket: "token-submit:ip", limit: 30, windowSeconds: 15 * 60 },
   inviteByActor: { bucket: "invite:actor", limit: 30, windowSeconds: 60 * 60 },
   passwordChangeByUser: { bucket: "password-change:user", limit: 10, windowSeconds: 60 * 60 },
+  browserCallByUser: { bucket: "call-browser:user", limit: 30, windowSeconds: 60 * 60 },
+  browserCallByOrg: { bucket: "call-browser:org", limit: 300, windowSeconds: 24 * 60 * 60 },
+  telephonyWebhookByIp: { bucket: "telephony-webhook:ip", limit: 600, windowSeconds: 60 },
+  uploadByUser: { bucket: "upload:user", limit: 120, windowSeconds: 60 * 60 },
+  importByUser: { bucket: "import:user", limit: 20, windowSeconds: 60 * 60 },
+  bookingEmailByUser: { bucket: "booking-email:user", limit: 100, windowSeconds: 60 * 60 },
+  contactByIp: { bucket: "contact:ip", limit: 5, windowSeconds: 60 * 60 },
 } satisfies Record<string, RateLimitRule>;
 
 function hashKey(bucket: string, identifier: string, windowIndex: number) {

@@ -1,5 +1,6 @@
 "use client";
 
+import { AttachmentsPanel } from "./attachments-panel";
 import { Archive, Pencil, Plus, Star } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -93,7 +94,7 @@ export function AddressDialog({
   );
 }
 
-export function AddressManager({ customerId, addresses, canWrite }: { customerId: string; addresses: AddressDTO[]; canWrite: boolean }) {
+export function AddressManager({ customerId, addresses, canWrite, files }: { customerId: string; addresses: AddressDTO[]; canWrite: boolean; files?: { canRead: boolean; canUpload: boolean; configured: boolean } }) {
   const router = useRouter();
   const [dialog, setDialog] = useState<{ editing: AddressDTO | null } | null>(null);
   const [message, setMessage] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
@@ -147,6 +148,14 @@ export function AddressManager({ customerId, addresses, canWrite }: { customerId
                 </ExternalAnchor>
               ))}
             </div>
+            {files?.canRead ? (
+              <details className="rounded-md border border-line p-2">
+                <summary className="cursor-pointer text-sm font-medium">Photos and documents</summary>
+                <div className="pt-2">
+                  <AttachmentsPanel parentType="address" parentId={a.id} categories={["property_photo", "document"]} canUpload={files.canUpload} configured={files.configured} />
+                </div>
+              </details>
+            ) : null}
             {canWrite ? (
               <div className="flex flex-wrap gap-2 pt-1">
                 <Button size="sm" variant="secondary" onClick={() => setDialog({ editing: a })}>

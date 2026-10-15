@@ -47,17 +47,16 @@ export function CustomerPicker({ value, onChange, canCreate }: { value: Customer
 
   useEffect(() => {
     if (debounced.trim().length < 2) return;
-    let cancelled = false;
+    // Abort the previous lookup when the user keeps typing (no stale responses, no wasted queries).
+    const controller = new AbortController();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- loading flag for a server lookup
     setLoading(true);
-    void apiRequest<{ items: CustomerPick[] }>(`/api/v1/customers/lookup?q=${encodeURIComponent(debounced.trim())}`).then((r) => {
-      if (cancelled) return;
+    void apiRequest<{ items: CustomerPick[] }>(`/api/v1/customers/lookup?q=${encodeURIComponent(debounced.trim())}`, { signal: controller.signal }).then((r) => {
+      if (controller.signal.aborted) return;
       setLoading(false);
       setResults(r.ok ? r.data.items : []);
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [debounced]);
 
   if (value) {

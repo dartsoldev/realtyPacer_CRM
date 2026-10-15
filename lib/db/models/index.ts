@@ -17,6 +17,12 @@ export { Activity } from "./activity";
 export { Refund } from "./refund";
 export { ChargeAdjustment } from "./charge-adjustment";
 export { SavedView } from "./saved-view";
+export { CallLog } from "./call-log";
+export { OutboxMessage } from "./outbox-message";
+export { Notification } from "./notification";
+export { WorkerHeartbeat } from "./worker-heartbeat";
+export { Attachment } from "./attachment";
+export { ImportJob } from "./import-job";
 
 import { Organization } from "./organization";
 import { User } from "./user";
@@ -35,6 +41,12 @@ import { Activity } from "./activity";
 import { Refund } from "./refund";
 import { ChargeAdjustment } from "./charge-adjustment";
 import { SavedView } from "./saved-view";
+import { CallLog } from "./call-log";
+import { OutboxMessage } from "./outbox-message";
+import { Notification } from "./notification";
+import { WorkerHeartbeat } from "./worker-heartbeat";
+import { Attachment } from "./attachment";
+import { ImportJob } from "./import-job";
 
 export const ALL_MODELS = [
   Organization,
@@ -54,4 +66,10 @@ export const ALL_MODELS = [
   Refund,
   ChargeAdjustment,
   SavedView,
+  CallLog,
+  OutboxMessage,
+  Notification,
+  WorkerHeartbeat,
+  Attachment,
+  ImportJob,
 ] as const;

@@ -31,6 +31,11 @@ const GRANT_LABELS: Partial<Record<Permission, string>> = {
   "views:share": "Share saved views with everyone",
   "loyalty:read": "View loyalty points",
   "loyalty:adjust": "Grant, redeem and correct points",
+  "calls:browser": "Place calls from the browser (when configured)",
+  "bookings:notify": "Send booking emails to customers",
+  "customers:import": "Import customers from CSV",
+  "attachments:write": "Upload photos and documents",
+  "attachments:delete": "Remove any photo or document",
 };
 
 function Modal({ title, open, onClose, children }: { title: string; open: boolean; onClose: () => void; children: React.ReactNode }) {

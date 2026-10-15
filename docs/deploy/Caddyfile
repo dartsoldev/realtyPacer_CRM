@@ -1,0 +1,15 @@
+# Example reverse proxy (Caddy obtains and renews TLS certificates automatically).
+realtypacer.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3000 {
+		# Overwrite (not append) the client address; then set TRUST_PROXY_HEADERS=true.
+		header_up X-Forwarded-For {remote_host}
+	}
+	request_body {
+		max_size 4MB
+	}
+}
+
+www.realtypacer.com {
+	redir https://realtypacer.com{uri} permanent
+}

@@ -5,9 +5,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/field";
 import { apiRequest } from "@/lib/client/api";
-import { CALL_OUTCOME_LABELS, CALL_OUTCOMES, type CallOutcome } from "@/lib/domain/constants";
+import { CALL_OUTCOME_LABELS } from "@/lib/domain/constants";
 import { formatDateTime } from "@/lib/domain/time";
 import type { ActivityItem } from "@/modules/activities/service";
 
@@ -50,6 +49,11 @@ function detail(a: ActivityItem, tz: string): string {
   }
   if (Array.isArray(m.fields) && m.fields.length) parts.push(`changed: ${m.fields.join(", ")}`);
   if (typeof m.label === "string") parts.push(m.label);
+  if (a.type === "call") {
+    if (typeof m.targetName === "string") parts.push(`${m.direction === "inbound" ? "from" : "to"} ${m.targetName}`);
+    if (m.channel === "browser") parts.push("browser call");
+    if (typeof m.durationSeconds === "number" && m.durationSeconds > 0) parts.push(`${Math.max(1, Math.round(m.durationSeconds / 60))} min`);
+  }
   return parts.join(" · ");
 }
 
@@ -63,9 +67,7 @@ export function ActivityFeed({ customerId, bookingId, canWrite, timezone }: { cu
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [kind, setKind] = useState<"note" | "call">("note");
   const [content, setContent] = useState("");
-  const [outcome, setOutcome] = useState<CallOutcome>("answered");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -90,6 +92,10 @@ export function ActivityFeed({ customerId, bookingId, canWrite, timezone }: { cu
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch of client-side feed
     void load(1, true);
+    // Other components (e.g. "Log call") announce new timeline entries.
+    const reload = () => void load(1, true);
+    window.addEventListener("rp:activity-changed", reload);
+    return () => window.removeEventListener("rp:activity-changed", reload);
   }, [load]);
 
   async function add() {
@@ -97,7 +103,7 @@ export function ActivityFeed({ customerId, bookingId, canWrite, timezone }: { cu
     setFormError(null);
     const res = await apiRequest("/api/v1/activities", {
       method: "POST",
-      body: { ...(customerId ? { customerId } : { bookingId }), kind, content, ...(kind === "call" ? { callOutcome: outcome } : {}) },
+      body: { ...(customerId ? { customerId } : { bookingId }), kind: "note", content },
     });
     setSaving(false);
     if (!res.ok) {
@@ -118,35 +124,17 @@ export function ActivityFeed({ customerId, bookingId, canWrite, timezone }: { cu
             void add();
           }}
         >
-          <fieldset className="flex flex-wrap gap-4 text-sm">
-            <legend className="sr-only">Entry type</legend>
-            <label className="flex items-center gap-2">
-              <input type="radio" name="kind" className="accent-brand" checked={kind === "note"} onChange={() => setKind("note")} /> Note
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="radio" name="kind" className="accent-brand" checked={kind === "call"} onChange={() => setKind("call")} /> Call outcome
-            </label>
-          </fieldset>
-          {kind === "call" ? (
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Outcome</span>
-              <Select value={outcome} onChange={(e) => setOutcome(e.target.value as CallOutcome)}>
-                {CALL_OUTCOMES.map((o) => (
-                  <option key={o} value={o}>
-                    {CALL_OUTCOME_LABELS[o]}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          ) : null}
           <label className="block text-sm">
-            <span className="mb-1 block font-medium">{kind === "call" ? "Details (optional)" : "Note"}</span>
+            <span className="mb-1 block font-medium">Note</span>
             <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={2} maxLength={2000} className="block w-full rounded-lg border border-line bg-surface px-3 py-2 text-base sm:text-sm" />
           </label>
           {formError ? <p className="text-sm text-danger" role="alert">{formError}</p> : null}
-          <Button type="submit" size="sm" loading={saving}>
-            Add to history
-          </Button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted">To record a phone call, use “Log call” next to the phone number.</p>
+            <Button type="submit" size="sm" loading={saving}>
+              Add to history
+            </Button>
+          </div>
         </form>
       ) : null}
 

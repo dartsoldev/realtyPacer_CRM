@@ -46,6 +46,8 @@ const customerSchema = new Schema(
     lastPaymentAt: { type: Date, default: null },
     /** Shared contention record for this customer's money and points movements. */
     ledgerRevision: { type: Number, default: 0 },
+    /** "<importJobId>:<row>" for customers created by a CSV import (retries never duplicate). */
+    importRef: { type: String, default: null, maxlength: 60 },
     archivedAt: { type: Date, default: null },
     archivedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
@@ -56,6 +58,7 @@ const customerSchema = new Schema(
 customerSchema.index({ organizationId: 1, archivedAt: 1, searchName: 1, _id: 1 });
 customerSchema.index({ organizationId: 1, archivedAt: 1, createdAt: -1, _id: -1 });
 customerSchema.index({ organizationId: 1, email: 1 });
+customerSchema.index({ organizationId: 1, importRef: 1 }, { unique: true, partialFilterExpression: { importRef: { $type: "string" } } });
 customerSchema.index({ organizationId: 1, phone: 1 });
 customerSchema.index({ organizationId: 1, phoneDigits: 1 });
 customerSchema.index({ organizationId: 1, tags: 1 });

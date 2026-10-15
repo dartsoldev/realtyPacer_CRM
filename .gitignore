@@ -15,3 +15,16 @@ next-env.d.ts
 
 npm-debug.log*
 .DS_Store
+
+# Build output for operational CLIs
+dist/
+
+# Never commit exports, imports or uploaded files
+exports/
+uploads/
+*.csv
+!docs/samples/*.csv
+
+# Production environment files
+.env.production
+.env.staging

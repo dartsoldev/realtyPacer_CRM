@@ -15,8 +15,7 @@ export type DashboardSummary = {
 };
 
 /**
- * Real, permission-filtered counts. Modules not yet built simply report 0 —
- * the UI pairs zeros with honest "arrives in phase N" empty states.
+ * Real, permission-filtered counts (each figure only for users who may see it).
  */
 export async function getDashboardSummary(actor: CurrentUser): Promise<DashboardSummary> {
   await connectDb();

@@ -1,0 +1,6 @@
+First name,Last name,Business name,Phone,Email,Customer since,Tags,Notes,Address line 1,Address line 2,City,Province,Postal code,Country,Access notes
+Avery,Sample,,(416) 555-0101,avery.sample@example.test,2023-05-14,weekly; pets,Prefers mornings,12 Example Avenue,,Toronto,ON,M5V 0A1,Canada,Side door code given on arrival
+Jordan,Placeholder,,(905) 555-0102,,2024-01-09,,,"40 Fictional Road, Unit 3",,Mississauga,ON,L5B 0A1,Canada,
+,,Demo Property Management,(647) 555-0103,office@demo-property.example.test,2022-11-30,business,Invoice monthly,500 Test Boulevard,Suite 200,Toronto,ON,M4W 0A1,Canada,Check in at front desk
+Riley,Testcase,,,riley.testcase@example.test,,,,,,,,,,
+Casey,Duplicate-Of-Avery,,(416) 555-0101,,,,"Same phone as Avery (shows duplicate review)",,,,,,,

@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
+import { connection } from "next/server";
 import localFont from "next/font/local";
 import "./globals.css";
+import { ServiceWorkerRegister } from "@/components/shell/pwa";
 import { siteUrl } from "@/lib/site";
 
 // Inter (SIL OFL) self-hosted from the @fontsource-variable package via next/font.
@@ -16,6 +18,7 @@ export const metadata: Metadata = {
   title: { default: "RealtyPacer — CRM for service businesses", template: "%s · RealtyPacer" },
   description: "RealtyPacer helps service businesses keep customers, schedules and reporting in one place.",
   applicationName: "RealtyPacer",
+  appleWebApp: { capable: true, title: "RealtyPacer", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {
@@ -24,10 +27,15 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Every page renders per request so proxy.ts can attach a CSP nonce to Next.js scripts.
+  await connection();
   return (
     <html lang="en" className={inter.variable}>
-      <body className="min-h-dvh font-sans">{children}</body>
+      <body className="min-h-dvh font-sans">
+        {children}
+        <ServiceWorkerRegister />
+      </body>
     </html>
   );
 }

@@ -1,0 +1,10 @@
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": ["https://realtypacer.com"],
+      "AllowedMethods": ["PUT"],
+      "AllowedHeaders": ["content-type", "content-length"],
+      "MaxAgeSeconds": 600
+    }
+  ]
+}

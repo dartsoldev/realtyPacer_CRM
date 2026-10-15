@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CalendarPlus, ClipboardList, Pencil } from "lucide-react";
+import { CallActions } from "@/components/calls/call-actions";
+import { browserCallingAvailable } from "@/modules/calls/service";
+import { storageConfigured } from "@/lib/storage";
 import { RecordPaymentButton } from "@/components/finance/payment-dialogs";
 import { LoyaltyEntryButton, ReverseLoyaltyButton } from "@/components/finance/loyalty-actions";
 import { BillingStateBadge, PaymentStatusBadge } from "@/components/finance/status";
@@ -10,7 +13,7 @@ import { Types } from "mongoose";
 import { ActivityFeed } from "@/components/ops/activity-feed";
 import { AddressManager } from "@/components/ops/address-manager";
 import { ArchiveCustomerButton } from "@/components/ops/archive-button";
-import { EmailLink, MapLink, PhoneLink } from "@/components/ops/contact";
+import { EmailLink, MapLink } from "@/components/ops/contact";
 import { BookingStatusBadge } from "@/components/ops/status";
 import { AccessDenied } from "@/components/shell/access";
 import { Badge } from "@/components/ui/badge";
@@ -99,7 +102,7 @@ export default async function CustomerProfilePage({ params, searchParams }: { pa
             </div>
             {customer.companyName && customer.companyName !== customer.name ? <p className="text-sm text-muted">{customer.companyName}</p> : null}
             <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
-              <PhoneLink e164={customer.phone} display={customer.phoneDisplay} />
+              <CallActions e164={customer.phone} display={customer.phoneDisplay} target={{ type: "customer", id: customer.id, name: customer.name }} canLog={can(user, "calls:log")} browserCalling={browserCallingAvailable(user)} />
               <EmailLink email={customer.email} />
               {!customer.phone && !customer.email ? <span className="text-muted">No contact details</span> : null}
             </div>
@@ -225,7 +228,7 @@ export default async function CustomerProfilePage({ params, searchParams }: { pa
 
       {tab === "addresses" ? (
         <Card className="p-5">
-          <AddressManager customerId={customer.id} addresses={addresses} canWrite={canWrite} />
+          <AddressManager customerId={customer.id} addresses={addresses} canWrite={canWrite} files={{ canRead: can(user, "attachments:read"), canUpload: can(user, "attachments:write"), configured: storageConfigured() }} />
         </Card>
       ) : null}
 

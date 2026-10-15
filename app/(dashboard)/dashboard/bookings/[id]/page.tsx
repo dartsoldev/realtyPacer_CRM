@@ -5,6 +5,11 @@ import { CalendarDays, Pencil } from "lucide-react";
 import { ActivityFeed } from "@/components/ops/activity-feed";
 import { BookingActions, ChangeAddressButton } from "@/components/ops/booking-actions";
 import { EmailLink, MapLink, PhoneLink } from "@/components/ops/contact";
+import { AttachmentsPanel } from "@/components/ops/attachments-panel";
+import { storageConfigured } from "@/lib/storage";
+import { EmailCustomerButton } from "@/components/ops/booking-email";
+import { CallActions } from "@/components/calls/call-actions";
+import { browserCallingAvailable } from "@/modules/calls/service";
 import { BookingStatusBadge, UnassignedBadge } from "@/components/ops/status";
 import { AccessDenied } from "@/components/shell/access";
 import { LinkButton } from "@/components/ui/button";
@@ -78,6 +83,7 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
               <Pencil className="size-4" aria-hidden /> Edit
             </LinkButton>
           ) : null}
+          {office && can(user, "bookings:notify") ? <EmailCustomerButton bookingId={b.id} cancelled={b.status === "CANCELLED"} timezone={tz} /> : null}
           {office && can(user, "calendar:read") ? (
             <LinkButton href={`/dashboard/calendar?date=${b.local.date}`} variant="ghost">
               <CalendarDays className="size-4" aria-hidden /> In calendar
@@ -103,7 +109,7 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
                 <p className="text-base font-semibold">{b.customer.name}</p>
               )}
               <div className="flex flex-wrap gap-x-5 gap-y-1">
-                <PhoneLink e164={b.customer.phone} display={b.customer.phoneDisplay} />
+                <CallActions e164={b.customer.phone} display={b.customer.phoneDisplay} target={{ type: "customer", id: b.customer.id, name: b.customer.name, bookingId: b.id }} canLog={office && can(user, "calls:log")} browserCalling={office && browserCallingAvailable(user)} />
                 <EmailLink email={b.customer.email} />
               </div>
             </div>
@@ -259,6 +265,22 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
             </Card>
           ) : null}
 
+          {office ? can(user, "attachments:read") : can(user, "attachments:assigned") ? (
+            <Card>
+              <CardHeader title="Photos and documents" description={office ? "Before/after photos and job documents. Photos are visible to assigned cleaners; documents are office-only." : "Before/after photos for this job."} />
+              <div className="p-5">
+                <AttachmentsPanel
+                  parentType="booking"
+                  parentId={b.id}
+                  categories={office ? ["before_photo", "after_photo", "document"] : ["before_photo", "after_photo"]}
+                  canUpload={office ? can(user, "attachments:write") : b.status !== "CANCELLED"}
+                  configured={storageConfigured()}
+                  includeProperty
+                />
+              </div>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader title="Job instructions" description="Visible to the assigned cleaners" />
             <p className="whitespace-pre-wrap px-5 py-4 text-sm">{b.instructions || <span className="text-muted">None.</span>}</p>
@@ -287,7 +309,11 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
                       <p className="font-medium">{c.name}</p>
                     )}
                     {!c.active ? <p className="text-xs text-danger">Inactive — reassign this job</p> : null}
-                    <PhoneLink e164={c.phone} display={c.phoneDisplay} />
+                    {office && can(user, "cleaners:read") ? (
+                      <CallActions e164={c.phone} display={c.phoneDisplay} target={{ type: "cleaner", id: c.id, name: c.name, bookingId: b.id }} canLog={can(user, "calls:log")} browserCalling={browserCallingAvailable(user)} compact />
+                    ) : (
+                      <PhoneLink e164={c.phone} display={c.phoneDisplay} />
+                    )}
                   </li>
                 ))}
               </ul>

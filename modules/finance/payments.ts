@@ -97,7 +97,21 @@ async function applyAllocations(
       const line = b.lineItems.find((l) => String(l._id) === a.lineItemId);
       if (!line) throw Errors.validation(`Service line not found on booking ${b.reference}.`);
       deltas.set(a.lineItemId, { allocated: a.amountCents });
-      stored.push({ _id: new Types.ObjectId(), bookingId: b._id, lineItemId: line._id, serviceId: line.serviceId, amountCents: a.amountCents, refundedCents: 0, allocatedAt: at, allocatedBy: oid(actorId), source });
+      stored.push({
+        _id: new Types.ObjectId(),
+        bookingId: b._id,
+        lineItemId: line._id,
+        serviceId: line.serviceId,
+        amountCents: a.amountCents,
+        refundedCents: 0,
+        allocatedAt: at,
+        allocatedBy: oid(actorId),
+        source,
+        bookingReference: b.reference,
+        city: b.addressSnapshot?.city ?? null,
+        cityNormalized: b.addressSnapshot?.cityNormalized ?? null,
+        serviceName: line.name,
+      });
     }
     outstandingDelta += await applyLineDeltas(session, b, deltas);
   }
@@ -264,7 +278,18 @@ export async function recordRefund(user: CurrentUser, paymentId: string, raw: un
           m.set(String(a.lineItemId), { allocated: cur - x.amountCents });
           byBooking.set(String(a.bookingId), m);
         }
-        return { allocationId: a?._id ?? null, bookingId: a?.bookingId ?? null, lineItemId: a?.lineItemId ?? null, serviceId: a?.serviceId ?? null, amountCents: x.amountCents };
+        const snap = a as { bookingReference?: string | null; city?: string | null; cityNormalized?: string | null; serviceName?: string | null } | null;
+        return {
+          allocationId: a?._id ?? null,
+          bookingId: a?.bookingId ?? null,
+          lineItemId: a?.lineItemId ?? null,
+          serviceId: a?.serviceId ?? null,
+          amountCents: x.amountCents,
+          bookingReference: snap?.bookingReference ?? null,
+          city: snap?.city ?? null,
+          cityNormalized: snap?.cityNormalized ?? null,
+          serviceName: snap?.serviceName ?? null,
+        };
       });
       let outstandingDelta = 0;
       for (const bookingId of [...byBooking.keys()].sort()) {

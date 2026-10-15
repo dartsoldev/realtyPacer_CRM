@@ -15,6 +15,11 @@ const portionSchema = new Schema(
     lineItemId: { type: Schema.Types.ObjectId, default: null },
     serviceId: { type: Schema.Types.ObjectId, ref: "Service", default: null },
     amountCents: { type: Number, required: true, min: 1, validate: integerValidator },
+    /** Report snapshot taken when the money was applied (avoids a booking lookup per row in cash reports). */
+    bookingReference: { type: String, default: null, maxlength: 40 },
+    city: { type: String, default: null, maxlength: 100 },
+    cityNormalized: { type: String, default: null, maxlength: 100 },
+    serviceName: { type: String, default: null, maxlength: 200 },
   },
   { _id: false },
 );

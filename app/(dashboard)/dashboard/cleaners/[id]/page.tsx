@@ -2,7 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BookingList } from "@/components/ops/booking-list";
-import { EmailLink, PhoneLink } from "@/components/ops/contact";
+import { EmailLink } from "@/components/ops/contact";
+import { CallActions } from "@/components/calls/call-actions";
+import { browserCallingAvailable } from "@/modules/calls/service";
+import { listCalls } from "@/modules/calls/service";
+import { CALL_OUTCOME_LABELS, type CallOutcome } from "@/lib/domain/constants";
+import { formatDateTime } from "@/lib/domain/time";
 import { ActiveBadge } from "@/components/ops/status";
 import { AccessDenied } from "@/components/shell/access";
 import { Card, CardHeader } from "@/components/ui/layout";
@@ -29,6 +34,7 @@ export default async function CleanerPage({ params }: { params: Promise<{ id: st
   const schedule = can(user, "bookings:read") ? await cleanerSchedule(user, cleaner.id) : null;
   const canWrite = can(user, "cleaners:write");
   const tz = user.organization.timezone;
+  const calls = can(user, "calls:log") ? await listCalls(user, { cleanerId: cleaner.id }) : null;
 
   return (
     <>
@@ -42,7 +48,7 @@ export default async function CleanerPage({ params }: { params: Promise<{ id: st
             <ActiveBadge active={cleaner.active} archived={cleaner.archived} />
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
-            <PhoneLink e164={cleaner.phone} display={cleaner.phoneDisplay} />
+            <CallActions e164={cleaner.phone} display={cleaner.phoneDisplay} target={{ type: "cleaner", id: cleaner.id, name: cleaner.name }} canLog={can(user, "calls:log")} browserCalling={browserCallingAvailable(user)} />
             <EmailLink email={cleaner.email} />
           </div>
           {cleaner.serviceAreas.length ? <p className="text-sm text-muted">Service areas: {cleaner.serviceAreas.join(", ")}</p> : null}
@@ -56,6 +62,28 @@ export default async function CleanerPage({ params }: { params: Promise<{ id: st
             <CardHeader title="Upcoming and in-progress jobs" />
             {schedule ? <BookingList bookings={schedule.upcoming} timezone={tz} empty="No upcoming jobs." /> : <p className="px-5 py-4 text-sm text-muted">You don’t have access to bookings.</p>}
           </Card>
+          {calls ? (
+            <Card>
+              <CardHeader title="Calls" description="Logged calls and browser calls with this cleaner (latest 50)" />
+              {calls.length === 0 ? (
+                <p className="px-5 py-4 text-sm text-muted">No calls logged.</p>
+              ) : (
+                <ul className="divide-y divide-line">
+                  {calls.map((c) => (
+                    <li key={c.id} className="px-5 py-3 text-sm">
+                      <p>
+                        <span className="font-medium">{c.direction === "inbound" ? "Incoming" : "Outgoing"}{c.channel === "browser" ? " browser call" : " call"}</span>
+                        {c.outcome ? ` — ${CALL_OUTCOME_LABELS[c.outcome as CallOutcome]}` : c.status !== "logged" ? ` — ${c.status.replace("_", " ")}` : ""}
+                        {c.durationSeconds ? <span className="text-muted"> · {Math.max(1, Math.round(c.durationSeconds / 60))} min</span> : null}
+                      </p>
+                      {c.notes ? <p className="whitespace-pre-wrap">{c.notes}</p> : null}
+                      <p className="text-xs text-muted">{c.actorName} · {formatDateTime(c.occurredAt, tz)}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          ) : null}
           <Card>
             <CardHeader title="Recently completed" description="Last 25 completed jobs" />
             {schedule ? <BookingList bookings={schedule.completed} timezone={tz} empty="No completed jobs yet." /> : null}

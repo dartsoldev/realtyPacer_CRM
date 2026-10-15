@@ -1,6 +1,6 @@
 # PROJECT_STATE — RealtyPacer
 
-_Last updated: 2026-10-15 · Phases 1–3 of 4 complete (see "Checks" for exactly what was verified)._
+_Last updated: 2026-10-15 · Phases 1–4 implemented; see "Checks" and docs/RELEASE_CHECKLIST.md for exactly what was verified and what still depends on external setup._
 
 Core relationship: **Customer → Service address → Booking → Service items → Assigned cleaners.**
 
@@ -278,11 +278,78 @@ New: `financials:read`, `payments:record`, `payments:allocate`, `payments:refund
 
 No new environment variables. MongoDB must be a replica set (transactions). Run `npm run db:indexes` after deploying (new models/indexes and indexed custom fields). Tax is configured in-app.
 
+## Phase 4: integration and release preparation
+
+### Calling
+
+- **tel mode (default, `CALLING_MODE=tel`)**: `CallActions` on the customer list/profile, booking detail (customer and cleaners), cleaner list/profile and cleaner job cards: normalized `tel:` link (opens the device's phone app), copy-number button (clipboard with select-text fallback), and **Log call** (direction, outcome, optional duration in minutes, notes). A dialer click never creates or completes a record.
+- **CallLog** model (source of truth): org, actor, target (customer/cleaner), booking, `toNumber` (from the record, never the browser), direction, channel (`phone_app`/`browser`), status (`logged` or provider states), outcome, duration, notes, provider call ids, `lastSequence`, idempotency key. Calls with a customer/booking are mirrored into the timeline (`Activity` type `call`, dedupe `call:<id>`); cleaner calls appear on the cleaner profile.
+- **browser mode (`CALLING_MODE=browser`, Twilio Voice)**: `POST /api/v1/calls/browser` checks `calls:browser`, configuration, rate limits (30/h per user, 300/day per org), destination country (`CALLING_ALLOWED_COUNTRIES`), creates the CallLog and returns a 10-minute outgoing-only access token (identity `rp_<userId>`). The browser loads `@twilio/voice-sdk` on demand, asks for the microphone, and connects with only `{ callLogId }`. `POST /api/v1/telephony/twilio/voice` (signature-validated against `APP_URL`) atomically claims the call log for that identity within 2 minutes (single use) and returns `<Dial callerId=TWILIO_CALLER_ID answerOnBridge>` to the stored number with status callbacks. `POST /api/v1/telephony/twilio/status` applies events only if `SequenceNumber` is newer and the status isn't terminal (duplicates/out-of-order ignored); outcome comes from the provider (`answered` only after in-progress/duration > 0). UI states: microphone, starting, connecting, ringing, connected (timer), ended, failed; mute and hang-up.
+- Not included: inbound routing, recording, transcription, SMS.
+
+### Notifications, email outbox and worker
+
+- **Notification** model (per user, 180-day TTL): `assignment_added`, `assignment_removed`, `booking_rescheduled`, `booking_cancelled`, written inside the booking transaction for the linked users of the cleaners concerned only (dedupe per booking version). Body: reference, local time, city. Bell with unread count; `/dashboard/notifications`; links re-check authorization (removed cleaners get no link).
+- **OutboxMessage** model: rendered snapshot (to/subject/html/text), status `pending → sending → sent | failed`, attempts, backoff (1 m, 5 m, 15 m, 1 h, 3 h; max 6), lease (`lockedUntil` 2 min), coarse `lastError`, unique `dedupeKey`. `scripts/worker.ts` (`dist/worker.cjs`) delivers batches, writes a heartbeat (`WorkerHeartbeat`), cleans abandoned uploads, handles SIGTERM. Admin retry on System status.
+- **Customer booking emails**: Organization setting `notifications.customerBookingEmails` = `off` (default) | `manual` | `auto`. Manual: Booking → **Email customer** previews recipient, subject and text, then queues once per idempotency key. Auto: queued after committed create (confirmation), reschedule/address change (changed) and cancel (cancelled), once per booking version. Content: date/time, address, services, reference and the organization's contact details — never prices, office notes or internal data. Customers without email: blocked with a clear message.
+- **Auth emails** (invitation, verification, reset) stay synchronous so the user sees success/failure immediately; the password-changed notice is sent immediately and queued for retry if SMTP fails.
+
+### Customer CSV import
+
+`/dashboard/customers/import` (`customers:import` + `customers:write`): template download; upload ≤ 2 MB / 5,000 rows / 60 columns (RFC 4180 parser, BOM-aware); column mapping to an allowlist (contact fields, tags, notes, relationship start, primary address, active customer custom fields — values converted per type, options matched by label); preview with per-row errors, duplicate candidates by normalized phone/email (existing customers and earlier rows), explicit decisions (create / skip / update a chosen match with optional per-field overwrite; updates fill blanks, merge tags, never replace custom-field values); batched run (100 rows per request, resumable). Retries can't duplicate: each row records its result and creations carry `Customer.importRef = "<job>:<row>"` (unique). Jobs expire after 14 days. Payments/balances are never imported. Sample: `docs/samples/customers-sample.csv` (synthetic).
+
+### Photos and documents
+
+- **Attachment** model: org, parent (`address`/`booking`), customer, category (`property_photo`, `before_photo`, `after_photo`, `document`), safe display name, MIME type, size, dimensions, storage key, thumbnail key, visibility (`office`, or `assigned_cleaners` for photos), status (`pending`/`ready`/`deleted`), uploader, timestamps.
+- Flow: `POST /api/v1/attachments/uploads` (permission + parent ownership; JPEG/PNG/WebP ≤ 15 MB, PDF ≤ 20 MB; no SVG/HTML/executables) → presigned PUT (5 min, random key) → `POST /api/v1/attachments/:id/complete` verifies size, magic bytes and image decoding (sharp, ≤ 50 MP), generates a 480 px WebP thumbnail, else deletes the object. Reads only through `GET /api/v1/attachments/:id/content[?variant=thumb]` (re-authorized per request; `private` caching; documents as `attachment`; `nosniff`; sandbox CSP). Delete: uploader or `attachments:delete`; audited.
+- Cleaners (`attachments:assigned`): view photos and add before/after photos on their assigned, non-cancelled jobs, plus that job's property photos; never office documents. Without storage configuration the UI and API say so (503 `STORAGE_NOT_CONFIGURED`).
+
+### PWA, public site, SEO
+
+- `app/manifest.ts`, icons (`app/icon.svg`, `apple-icon.png`, `public/icons/*`), `public/sw.js`: caches only `/_next/static/*`, `/icons/*` and `offline.html`; never HTML of signed-in pages, API responses, files or auth pages; navigations fall back to the offline page; no offline writes; caches cleared on sign-out. Offline banner in the dashboard. Described as an installable web app, not an app-store app.
+- Homepage rewritten with factual copy (no invented reviews, counts or addresses), canonical URL from `APP_URL`, Open Graph/Twitter metadata, generated OG image, `SoftwareApplication` JSON-LD (name, URL, category, description only). Sitemap: `/` only. No contact form (none is offered rather than a fake one).
+
+### Security review (findings and fixes)
+
+| Area | Finding | Fix |
+|---|---|---|
+| CSP | `script-src 'unsafe-inline'` (static, baked at build) | Per-request nonce + `'strict-dynamic'` in `proxy.ts`; all pages dynamic; Twilio/storage origins only when configured; microphone allowed only in browser-calling mode |
+| Dependencies | `nodemailer@7` had high-severity advisories | Upgraded to `nodemailer@10.0.13` (npm `overrides` for next-auth's optional peer); `npm audit --omit=dev`: 0. Remaining: dev-only `braces` via `eslint-config-next` (no fix available; lint tooling only) |
+| Telephony | Voice webhook claimed a call before checking the caller identity (found by tests) | Identity is part of the atomic claim |
+| Request size | 32 KB JSON limit would have rejected CSV imports | Per-route limits (3 MB import upload, 1 MB decisions); `Content-Length` checked first |
+| Logging | Phones and URL credentials could reach logs | Redaction extended (URL credentials, phone masking, card-like numbers, signatures) |
+| Health | `/api/v1/health` revealed which services were configured | Liveness only; readiness without details; diagnostics behind `system:diagnostics` |
+| Dev services | In-memory MongoDB was standalone (transactions fail) | Single-node replica set |
+| Standalone output | Next copies the local `.env` into `.next/standalone` | `.dockerignore` excludes `.env*`; e2e sets every variable explicitly |
+
+Re-verified and unchanged: Argon2id hashing; hashed single-use tokens with expiry; generic forgot-password response (no enumeration); sessionVersion revocation; safe callback paths; HttpOnly SameSite cookies; Mongo-backed shared rate limits; org scoping; last-superadmin protection; role assignment limits; strict zod schemas/allowlisted filters; Origin/JSON CSRF check; transactional booking/payment/points concurrency; idempotency keys; CSV formula protection; private storage; Twilio signature validation; escaped email templates with `APP_URL` links. This is an internal review, not an independent audit or certification.
+
+### New permissions
+
+`calls:log` (ADMIN, STAFF base), `calls:browser`, `bookings:notify`, `customers:import`, `attachments:read` (ADMIN, STAFF base), `attachments:write`, `attachments:delete` (ADMIN; grantable to STAFF), `attachments:assigned` (CLEANER), `system:diagnostics` (ADMIN, SUPERADMIN).
+
+### New routes
+
+`/api/v1/calls` (GET, POST), `/calls/:id` (PATCH), `/calls/:id/failed`, `/calls/browser`, `/calls/browser/token`, `/telephony/twilio/voice`, `/telephony/twilio/status`, `/notifications`, `/notifications/read`, `/bookings/:id/email` (GET preview+history, POST send), `/imports/customers` (POST), `/imports/customers/template`, `/imports/:id`, `/imports/:id/preview`, `/imports/:id/decisions`, `/imports/:id/run`, `/attachments` (GET), `/attachments/uploads`, `/attachments/:id` (DELETE), `/attachments/:id/complete`, `/attachments/:id/content`, `/ready`, `/system/status`, `/system/outbox`, `/system/outbox/:id/retry`. Screens: `/dashboard/notifications`, `/dashboard/customers/import`, `/dashboard/system`. `/customers/:id/summary` now returns `financials` (with `financials:read`).
+
+### Deployment
+
+`Dockerfile` (multi-stage, Node 22 slim, standalone server, non-root `node`, `HEALTHCHECK`, `STOPSIGNAL SIGTERM`, worker/ops CLIs bundled by esbuild into `dist/`), `docker-compose.yml` (web, worker, migrate profile), `docker-compose.local.yml` (dev only: Mongo replica set, Mailpit, S3 mock), `instrumentation.ts` (production startup config validation), `docs/DEPLOYMENT.md`, `docs/OPERATIONS.md`, `docs/deploy/*`.
+
 ## Commands
 
-`npm run dev` · `npm run dev:services` (`-- --smtp-only` to use your own DB) · `npm run dev:fixtures -- --org-id <id> --yes` · `npm run typecheck` · `npm run lint` · `npm test` (optionally `TEST_MONGODB_URI=…`) · `npm run build` · `npm run check` · `npm run db:indexes` · `npm run bootstrap:superadmin -- --name … --email …`
+`npm run dev` · `npm run worker` · `npm run db:migrate` · `npm run test:e2e` · `npm run dev:services` (`-- --smtp-only` to use your own DB) · `npm run dev:fixtures -- --org-id <id> --yes` · `npm run typecheck` · `npm run lint` · `npm test` (optionally `TEST_MONGODB_URI=…`) · `npm run build` · `npm run check` · `npm run db:indexes` · `npm run bootstrap:superadmin -- --name … --email …`
 
 ## Checks
+
+**Phase 4 (2026-10-15)** — final run on this machine:
+- `npm run typecheck` ✔ · `npm run lint` ✔ (0 problems) · `npm run build` ✔ (no warnings) · `npm run build:cli` ✔.
+- `npm test`: **109/109 passed** (10 files, 37 s) against a local in-memory MongoDB 8.2.6 replica set (binary checksum-verified against mongodb.org). New: `tests/integrations.test.ts` (calls, Twilio token/TwiML/webhook signatures with mocked network, outbox retry/backoff/dedupe, booking emails, notifications), `tests/import-files.test.ts` (CSV import incl. crash/retry without duplicates; attachments with in-memory storage: spoofed types, size mismatch, cleaner visibility, auth route headers), `tests/unit-phase4.test.ts`. Earlier runs against the remote Atlas test cluster hit intermittent `ReplicaSetNoPrimary`/`ECONNRESET` (infrastructure), so the final runs use the local replica set.
+- `npm run test:e2e`: **14/14 passed** (47 s) — production build (`.next/standalone/server.js`) over real HTTP with cookies, local SMTP sink and a throwaway database: bootstrap → setup link → login; staff invitation email; services/cleaners/customer with two addresses; multi-service booking, idempotent replay, calendar, overlap rejected, reschedule, stale edit refused; start/complete, finalize, partial payment, credit application, final payment, reconcile `ok`; city AND service AND date report totals (service-specific), unsafe operator rejected; custom field + filter; points grant/over-redeem refused/redeem; shared view; CSV export; booking email via outbox + `node dist/worker.cjs --once` (no office notes in the mail); System status shows worker healthy; cleaner invite/login, only own job, no office notes/billing, notification received, start job, honest storage-not-configured; cleaner denied other jobs, customers, payments, finance, activities, diagnostics, reports and exports; cross-site Origin refused; cross-organization reads/writes 404; password reset invalidates the old session and the reset link is single-use; no account enumeration; CSV formula neutralized; nonce CSP without `'unsafe-inline'` scripts, private routes `noindex`, minimal health/readiness.
+- Production-mode browser pass (standalone server, local replica set): login form hydration under the nonce CSP, dashboard, calendar (lazy FullCalendar, events, no CSP violations), reports builder, booking detail call controls, **Log call** dialog saved (answered, 4 min, notes); customer CSV import of the synthetic sample through the API (15/15 columns auto-mapped, in-file duplicate held for decision, 4 created / 1 skipped); System status. Fixes from this pass: `upgrade-insecure-requests` broke lazy chunks on plain-HTTP hosts (now only for HTTPS `APP_URL`), activity feed didn't refresh after logging a call, version missing in standalone, double periods after timestamps.
+- Performance (synthetic dataset: 5,000 customers, 5,000 addresses, 40,000 bookings over 3 years, ~32,600 payments; local MongoDB 8.2.6 on a Windows laptop; medians of 3 runs, `scripts/perf-dataset.ts`): customer list 15 ms; name search 185 ms; partial-phone search 381 ms; autocomplete 5 ms; booking list 46 ms; calendar month 172 ms (was 651 ms — unbounded start range fixed); payments list with totals 130 ms; service report, 1 year unfiltered 858 ms, with city AND service 59 ms; customer summary 717 ms (was 1.7 s — joins only the page); cash report 526 ms (was 6.0 s — allocation snapshots replace a per-row booking join; `db:migrate` backfills older data); customer lifetime summary 9 ms. Report match uses an index (IXSCAN, 11,950 keys for 11,950 docs).
+
+Not verified (needs external setup or unavailable here): real SMTP delivery to a mailbox; real S3-compatible storage (presigned PUT, CORS); a live Twilio call (no account/number; tokens, TwiML and signatures verified offline); Docker image build/run (Docker isn't installed on this machine — the standalone server the image runs was verified); service-worker installation (the embedded browser pane refuses SW registration; `sw.js` and headers verified over HTTP); mobile/tablet screenshots of the phase-4 screens (the browser pane wasn't drawing for part of the pass; phase-3 screens were checked at 375 px); backups and restore; screen-reader testing; Lighthouse scores.
 
 **Phase 3 (2026-10-15)** — full run: **91/91 tests passed** (7 files, throwaway `realtypacer_test_*` database on Atlas, dropped afterwards).
 - `npm run typecheck` ✔, `npm run lint` ✔, `npm run build` ✔.
@@ -306,10 +373,15 @@ Not verified: real SMTP delivery (only a local SMTP sink); the in-memory MongoDB
 - Drag-and-drop rescheduling is intentionally not enabled; rescheduling uses the edit form (keyboard accessible, server-validated).
 - Customer name search uses an unanchored regex on `searchName` (fine for small/medium orgs); add a text/Atlas Search index if customer counts grow large.
 - Per-email login limit can temporarily lock out a known address (standard trade-off).
-- CSP keeps `'unsafe-inline'` for scripts; nonce upgrade path via `proxy.ts`.
+- Styles still allow `'unsafe-inline'` (inline style attributes, FullCalendar); scripts are nonce-only.
+- Customer name/phone search is an unanchored regex (185–381 ms at 5,000 customers); add Atlas Search if customer counts grow into the tens of thousands.
+- Browser calling is outbound only; no inbound routing, recording, transcription or SMS.
+- Booking emails are sent from the booking page (or automatically); there is no combined “save and send” on the edit form.
+- Scheduled reminder emails are not implemented.
+- The dev-only `braces` advisory (via `eslint-config-next`) has no upstream fix; it affects lint tooling only.
 - Business contact details from the reference screenshot were not used anywhere; enter them in Organization settings if wanted.
 
-## Integration points for phase 4
+## Future work (after this release)
 
 - **Online payments** (if wanted): a provider's hosted checkout/terminal would create `Payment` records through `recordPayment` (method + provider reference) from a verified webhook; never store card data. Refunds through a provider would still be recorded with `recordRefund`.
 - **Performance**: `reconcileCustomer` as a scheduled job over all customers; text/Atlas Search index for names; review report pipelines with `explain()` on large data; consider pre-aggregated monthly cash totals if exports approach the 10,000-row cap.

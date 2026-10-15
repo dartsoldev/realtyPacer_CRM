@@ -1,0 +1,36 @@
+# Production-style deployment on one host (behind a TLS reverse proxy).
+# MongoDB is NOT included: use MongoDB Atlas or another replica set (required
+# for transactions). Object storage and SMTP are external services too.
+#
+#   docker compose build
+#   docker compose run --rm migrate          # create/update indexes (idempotent)
+#   docker compose up -d web worker
+services:
+  web:
+    image: realtypacer:${APP_VERSION:-latest}
+    build: .
+    init: true
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      APP_VERSION: ${APP_VERSION:-latest}
+    ports:
+      - "127.0.0.1:3000:3000" # publish only to the local reverse proxy
+    stop_grace_period: 30s
+
+  worker:
+    image: realtypacer:${APP_VERSION:-latest}
+    init: true
+    restart: unless-stopped
+    env_file: .env.production
+    command: ["node", "dist/worker.cjs"]
+    healthcheck:
+      disable: true # liveness is the heartbeat shown on Admin → System status
+    stop_grace_period: 30s
+
+  migrate:
+    image: realtypacer:${APP_VERSION:-latest}
+    env_file: .env.production
+    command: ["sh", "-c", "node dist/sync-indexes.cjs && node dist/migrate.cjs"]
+    restart: "no"
+    profiles: ["ops"]

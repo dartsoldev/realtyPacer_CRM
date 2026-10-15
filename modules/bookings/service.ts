@@ -5,6 +5,8 @@ import type { z } from "zod";
 import type { CurrentUser } from "@/lib/auth/current-user";
 import { connectDb } from "@/lib/db/connect";
 import { withTransaction } from "@/lib/db/transaction";
+import { notifyCleaners } from "@/modules/notifications/service";
+import { autoBookingEmail } from "./emails";
 import { Booking, type BookingDoc } from "@/lib/db/models/booking";
 import { Cleaner } from "@/lib/db/models/cleaner";
 import { Customer } from "@/lib/db/models/customer";
@@ -576,6 +578,9 @@ export async function createBooking(user: CurrentUser, raw: unknown): Promise<{ 
         },
         session,
       );
+      if (input.status === "SCHEDULED") {
+        await notifyCleaners(session, "assignment_added", cleanerIds, { organizationId: orgId, bookingId: doc!._id, reference, start, timezone: settings.timezone, city: address.city ?? "", changeKey: "v0" });
+      }
       if (overrides.length) {
         await recordAudit({
           organizationId: orgId,
@@ -597,6 +602,7 @@ export async function createBooking(user: CurrentUser, raw: unknown): Promise<{ 
     throw err;
   }
   const fresh = await Booking.findById(bookingId).lean();
+  if (input.status === "SCHEDULED") await autoBookingEmail(orgId, String(bookingId), "booking_confirmation", "v0");
   return { booking: (await shapeBookings(viewer, [fresh as BookingDoc]))[0]!, created: true };
 }
 
@@ -616,7 +622,9 @@ export async function updateBooking(user: CurrentUser, id: string, raw: unknown)
   const orgId = new Types.ObjectId(user.organizationId);
   const settings = await orgSettings(orgId);
 
+  let emailChange: string | null = null;
   await withTransaction(async (session) => {
+    emailChange = null;
     const b = await loadVisibleBooking(viewer, id, session);
     if (b.version !== input.expectedVersion) throw staleError();
     const status = b.status as BookingStatus;
@@ -715,7 +723,20 @@ export async function updateBooking(user: CurrentUser, id: string, raw: unknown)
     const res = await Booking.updateOne({ _id: b._id, organizationId: orgId, version: input.expectedVersion }, { $set: set, $inc: { version: 1 } }, { session });
     if (res.matchedCount === 0) throw staleError();
     for (const a of activities) await recordActivity(a, session);
+
+    // In-app notices to the cleaners concerned (only people entitled to the job).
+    const notice = { organizationId: orgId, bookingId: b._id, reference: b.reference, start, timezone: settings.timezone, city: b.addressSnapshot?.city ?? "", changeKey: `v${input.expectedVersion + 1}` };
+    const before = b.assignedCleanerIds as Types.ObjectId[];
+    const added = cleanerIds.filter((c) => !before.some((x) => x.equals(c)));
+    const removed = before.filter((c) => !cleanerIds.some((x) => x.equals(c)));
+    if (added.length) await notifyCleaners(session, "assignment_added", added, notice);
+    if (removed.length) await notifyCleaners(session, "assignment_removed", removed, notice);
+    if (set.scheduledStartAt) {
+      await notifyCleaners(session, "booking_rescheduled", cleanerIds.filter((c) => !added.some((x) => x.equals(c))), notice);
+      emailChange = notice.changeKey;
+    }
   });
+  if (emailChange) await autoBookingEmail(orgId, id, "booking_changed", emailChange);
   return getBooking(user, id);
 }
 
@@ -747,6 +768,7 @@ export async function changeBookingAddress(user: CurrentUser, id: string, raw: u
     await recordActivity({ organizationId: orgId, actorId: user.id, type: "booking.address_changed", customerId: b.customerId, bookingId: b._id, metadata: meta }, session);
     await recordAudit({ organizationId: orgId, actorId: user.id, action: "booking.address_changed", entityType: "booking", entityId: b._id, metadata: { reference: b.reference } });
   });
+  await autoBookingEmail(orgId, id, "booking_changed", `addr-v${input.expectedVersion + 1}`);
   return getBooking(user, id);
 }
 
@@ -783,11 +805,15 @@ export async function transitionBooking(user: CurrentUser, id: string, raw: unkn
     if (res.matchedCount === 0) throw staleError();
     const type = ({ start: "booking.started", complete: "booking.completed", cancel: "booking.cancelled", reopen: "booking.reopened" } as const)[input.action];
     await recordActivity({ organizationId: orgId, actorId: user.id, type, customerId: b.customerId, bookingId: b._id, content: input.reason, metadata: { reference: b.reference } }, session);
+    if (input.action === "cancel") {
+      await notifyCleaners(session, "booking_cancelled", b.assignedCleanerIds as Types.ObjectId[], { organizationId: orgId, bookingId: b._id, reference: b.reference, start: b.scheduledStartAt, timezone: settings.timezone, city: b.addressSnapshot?.city ?? "", changeKey: `v${input.expectedVersion + 1}` });
+    }
     if (input.action === "reopen" || input.action === "cancel") {
       await recordAudit({ organizationId: orgId, actorId: user.id, action: `booking.${input.action === "reopen" ? "reopened" : "cancelled"}`, entityType: "booking", entityId: b._id, metadata: { reference: b.reference } });
     }
   });
-  // Cancelling never deletes or refunds payments; they stay allocated for phase-3 review.
+  // Cancelling never deletes or refunds payments; they stay allocated until refunded explicitly.
+  if (input.action === "cancel") await autoBookingEmail(orgId, id, "booking_cancelled", `v${input.expectedVersion + 1}`);
   return getBooking(user, id);
 }
 
@@ -818,7 +844,8 @@ export async function calendarEvents(user: CurrentUser, q: z.infer<typeof calend
   if (days <= 0 || days > MAX_CALENDAR_DAYS + 1) throw Errors.validation(`Choose a range of at most ${MAX_CALENDAR_DAYS} days.`);
   const filter: Record<string, unknown> = {
     organizationId: new Types.ObjectId(user.organizationId),
-    scheduledStartAt: { $lt: end },
+    // Bookings last at most 24 h, so a lower bound on the start keeps this an index range scan.
+    scheduledStartAt: { $gte: new Date(start.getTime() - 24 * 60 * 60_000), $lt: end },
     scheduledEndAt: { $gt: start },
   };
   if (!viewer.office) {

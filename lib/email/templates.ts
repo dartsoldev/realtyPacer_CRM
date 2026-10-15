@@ -37,6 +37,35 @@ ${button}
   return { to: l.to, subject: l.subject, html, text };
 }
 
+/** Customer booking email. Schedule details only: no prices, office notes or internal data. */
+export function bookingEmail(p: {
+  to: string;
+  customerName: string;
+  orgName: string;
+  orgPhone: string;
+  orgEmail: string;
+  kind: "booking_confirmation" | "booking_changed" | "booking_cancelled";
+  reference: string;
+  when: string;
+  address: string;
+  services: string[];
+}) {
+  const heading = p.kind === "booking_confirmation" ? "Your booking is confirmed" : p.kind === "booking_changed" ? "Your booking has changed" : "Your booking was cancelled";
+  const contact = [p.orgPhone, p.orgEmail].filter(Boolean).join(" or ");
+  const details = p.kind === "booking_cancelled"
+    ? [`Booking ${p.reference} on ${p.when} at ${p.address} has been cancelled.`]
+    : [`When: ${p.when}`, `Where: ${p.address}`, `Services: ${p.services.join(", ")}`, `Reference: ${p.reference}`];
+  return render({
+    to: p.to,
+    orgName: p.orgName,
+    subject: `${p.orgName}: ${heading} (${p.reference})`.replace(/\s+/g, " "),
+    preheader: `${heading} — ${p.when}`,
+    heading,
+    paragraphs: [`Hi ${p.customerName},`, ...details, contact ? `Questions or changes? Contact ${p.orgName} at ${contact}.` : `Questions or changes? Reply to ${p.orgName}.`],
+    footnote: `You're receiving this because you have a booking with ${p.orgName}.`,
+  });
+}
+
 export function invitationEmail(p: { to: string; inviteeName: string; inviterName: string; orgName: string; url: string; expiresHours: number }) {
   return render({
     to: p.to,

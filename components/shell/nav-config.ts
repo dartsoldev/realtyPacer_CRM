@@ -1,4 +1,5 @@
 import {
+  Activity,
   BarChart3,
   Briefcase,
   CalendarDays,
@@ -43,5 +44,6 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/users", label: () => "Users", icon: UserCog, permission: "users:read", section: "admin" },
   { href: "/dashboard/custom-fields", label: () => "Custom fields", icon: SlidersHorizontal, permission: "customFields:manage", section: "admin" },
   { href: "/dashboard/organization", label: () => "Organization", icon: Settings2, permission: "organization:read", section: "admin" },
+  { href: "/dashboard/system", label: () => "System status", icon: Activity, permission: "system:diagnostics", section: "admin" },
   { href: "/dashboard/audit", label: () => "Audit history", icon: ScrollText, permission: "audit:read", section: "admin" },
 ];

@@ -1,17 +1,27 @@
 /**
  * Redaction for logs and audit metadata. Secrets are removed entirely;
- * personal data (emails) is masked.
+ * personal data (emails, phone numbers) is masked.
  */
-const SECRET_KEY_RE = /pass(word)?|secret|token|authorization|cookie|session|api[-_]?key|smtp|hash|credential/i;
+const SECRET_KEY_RE = /pass(word)?|secret|token|authorization|cookie|session|api[-_]?key|smtp|hash|credential|signature/i;
 const EMAIL_RE = /([a-z0-9._%+-])[a-z0-9._%+-]*@([a-z0-9.-]+\.[a-z]{2,})/gi;
 const MONGO_URI_RE = /mongodb(\+srv)?:\/\/[^\s@]+@/gi;
+const URL_CREDENTIALS_RE = /(^|[^a-z0-9+.-])([a-z][a-z0-9+.-]*):\/\/[^\s/@:]+:[^\s/@]+@/gi;
+// 13–19 digit runs (possible card numbers) are never logged, even though RealtyPacer doesn't accept cards.
+const LONG_DIGITS_RE = /(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)/g;
+const PHONE_RE = /\+\d{5,11}(\d{2})(?!\d)/g;
 
 export function maskEmail(email: string): string {
   return email.replace(EMAIL_RE, (_m, first: string, domain: string) => `${first}***@${domain}`);
 }
 
 export function redactString(value: string): string {
-  return maskEmail(value.replace(MONGO_URI_RE, "mongodb$1://[redacted]@"));
+  return maskEmail(
+    value
+      .replace(MONGO_URI_RE, "mongodb$1://[redacted]@")
+      .replace(URL_CREDENTIALS_RE, "$1$2://[redacted]@")
+      .replace(LONG_DIGITS_RE, "[redacted-number]")
+      .replace(PHONE_RE, "+***$1"),
+  );
 }
 
 export function redact(value: unknown, depth = 0): unknown {

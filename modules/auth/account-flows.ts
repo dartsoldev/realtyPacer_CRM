@@ -18,6 +18,7 @@ import { clientIp } from "@/lib/http/request";
 import { logger } from "@/lib/logger";
 import { enforce, RATE_LIMITS } from "@/lib/security/rate-limit";
 import { recordAudit } from "@/modules/audit/service";
+import { enqueueEmail } from "@/modules/outbox/service";
 import { appLink } from "./links";
 
 type Headers_ = Headers | Record<string, string | string[] | undefined> | undefined;
@@ -270,24 +271,31 @@ export async function changePassword(actor: CurrentUser, input: z.infer<typeof c
   return { notificationSent: await notifyPasswordChanged(user._id) };
 }
 
-/** Best-effort security notification. Returns whether the SMTP server accepted it. */
+/**
+ * Security notification. Sent immediately when possible; if SMTP fails it is
+ * queued in the outbox for retries. Returns whether it was accepted right away.
+ */
 async function notifyPasswordChanged(userId: Types.ObjectId): Promise<boolean> {
+  const user = await User.findById(userId).lean();
+  if (!user) return false;
+  const org = await Organization.findById(user.organizationId).select("displayName timezone").lean();
+  const message = passwordChangedEmail({
+    to: user.email,
+    name: user.name,
+    orgName: org?.displayName ?? "your organization",
+    when: formatDateTime(user.passwordChangedAt ?? new Date(), org?.timezone ?? "UTC"),
+    supportUrl: appLink("/forgot-password"),
+  });
   try {
-    const user = await User.findById(userId).lean();
-    if (!user) return false;
-    const org = await Organization.findById(user.organizationId).select("displayName timezone").lean();
-    await sendEmail(
-      passwordChangedEmail({
-        to: user.email,
-        name: user.name,
-        orgName: org?.displayName ?? "your organization",
-        when: formatDateTime(new Date(), org?.timezone ?? "UTC"),
-        supportUrl: appLink("/forgot-password"),
-      }),
-    );
+    await sendEmail(message);
     return true;
   } catch (err) {
     logger.warn("auth.password_changed_notification_failed", { error: err as Error });
+    try {
+      await enqueueEmail({ organizationId: user.organizationId, kind: "password_changed", message, dedupeKey: `password-changed:${userId}:${(user.passwordChangedAt ?? new Date()).getTime()}`, relatedType: "user", relatedId: userId });
+    } catch (queueErr) {
+      logger.error("auth.password_changed_queue_failed", { error: queueErr as Error });
+    }
     return false;
   }
 }

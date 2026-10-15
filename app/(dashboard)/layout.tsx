@@ -1,15 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CircleUserRound } from "lucide-react";
+import { Bell, CircleUserRound } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
 import { MobileNav } from "@/components/shell/mobile-nav";
 import { NAV_ITEMS } from "@/components/shell/nav-config";
 import { NavLinks } from "@/components/shell/nav-links";
 import { SignOutButton } from "@/components/shell/sign-out-button";
+import { OfflineBanner } from "@/components/shell/pwa";
 import { SetupRequired } from "@/components/setup-required";
 import { RoleBadge } from "@/components/ui/badge";
 import { requirePageUser } from "@/lib/auth/page-guard";
 import { getConfigStatus } from "@/lib/env";
+import { unreadCount } from "@/modules/notifications/service";
 
 // Private, per-user content: always render on request, never prerender or cache.
 export const dynamic = "force-dynamic";
@@ -31,6 +33,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const user = await requirePageUser("/dashboard");
   const allowed = NAV_ITEMS.filter((i) => user.permissions.has(i.permission)).map((i) => i.href);
   const terminology = user.organization.terminology;
+  const unread = await unreadCount(user);
   // Cleaners see their own jobs on the dashboard.
   const navLabels = !user.permissions.has("bookings:read") && user.permissions.has("bookings:read_assigned") ? { "/dashboard": "My jobs" } : undefined;
 
@@ -57,6 +60,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <MobileNav allowed={allowed} terminology={terminology} orgName={user.organization.displayName} labels={navLabels} />
             <p className="min-w-0 flex-1 truncate text-sm font-medium text-ink lg:text-base">{user.organization.displayName}</p>
             <div className="flex items-center gap-1 sm:gap-2">
+              <Link href="/dashboard/notifications" className="relative inline-flex size-10 items-center justify-center rounded-lg hover:bg-canvas" aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}>
+                <Bell className="size-5" aria-hidden />
+                {unread ? <span className="absolute right-1 top-1 min-w-4 rounded-full bg-brand px-1 text-center text-[10px] font-semibold leading-4 text-white" aria-hidden>{unread > 99 ? "99+" : unread}</span> : null}
+              </Link>
               <Link href="/dashboard/account" className="hidden items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-canvas sm:inline-flex">
                 <CircleUserRound className="size-5 text-muted" aria-hidden />
                 <span className="max-w-40 truncate font-medium">{user.name}</span>
@@ -69,6 +76,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
             </div>
           </div>
         </header>
+        <OfflineBanner />
         <main id="content" className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
           {children}
         </main>

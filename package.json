@@ -18,9 +18,16 @@
     "bootstrap:superadmin": "tsx --conditions=react-server scripts/bootstrap-superadmin.ts",
     "check": "npm run typecheck && npm run lint && npm run test && npm run build",
     "dev:services": "tsx scripts/dev-services.ts",
-    "dev:fixtures": "tsx --conditions=react-server scripts/dev-fixtures.ts"
+    "dev:fixtures": "tsx --conditions=react-server scripts/dev-fixtures.ts",
+    "worker": "tsx --conditions=react-server scripts/worker.ts",
+    "build:cli": "node scripts/build-cli.mjs",
+    "start:worker": "node dist/worker.cjs",
+    "db:migrate": "npm run db:indexes && tsx --conditions=react-server scripts/migrate.ts",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1144.0",
+    "@aws-sdk/s3-request-presigner": "3.1144.0",
     "@fontsource-variable/inter": "5.3.0",
     "@fullcalendar/core": "6.1.21",
     "@fullcalendar/daygrid": "6.1.21",
@@ -30,17 +37,20 @@
     "@fullcalendar/timegrid": "6.1.21",
     "@hookform/resolvers": "5.9.1",
     "@node-rs/argon2": "2.2.2",
+    "@twilio/voice-sdk": "2.18.5",
     "clsx": "2.1.1",
     "libphonenumber-js": "1.13.15",
     "lucide-react": "1.57.0",
     "mongoose": "9.11.2",
     "next": "16.4.1",
     "next-auth": "4.24.15",
-    "nodemailer": "7.0.13",
+    "nodemailer": "10.0.13",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-hook-form": "7.90.0",
     "server-only": "0.0.1",
+    "sharp": "0.35.5",
+    "twilio": "6.1.2",
     "zod": "4.6.7"
   },
   "devDependencies": {
@@ -50,6 +60,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@types/smtp-server": "3.5.13",
+    "esbuild": "0.28.2",
     "eslint": "9.39.5",
     "eslint-config-next": "16.4.1",
     "mongodb-memory-server": "11.3.0",
@@ -58,5 +69,10 @@
     "tsx": "4.23.15",
     "typescript": "6.0.3",
     "vitest": "5.0.4"
+  },
+  "overrides": {
+    "next-auth": {
+      "nodemailer": "$nodemailer"
+    }
   }
 }

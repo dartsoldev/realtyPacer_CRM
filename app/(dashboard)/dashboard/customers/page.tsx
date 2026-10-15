@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowDown, ArrowUp, Plus, Search, Users, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Search, Upload, Users, X } from "lucide-react";
 import { ColumnPicker } from "@/components/ops/column-picker";
-import { PhoneLink } from "@/components/ops/contact";
+import { CallActions } from "@/components/calls/call-actions";
+import { browserCallingAvailable } from "@/modules/calls/service";
 import { AccessDenied } from "@/components/shell/access";
 import { plural } from "@/components/shell/nav-config";
 import { Badge } from "@/components/ui/badge";
@@ -63,6 +64,8 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
   }
   const label = plural(user.organization.terminology.customer);
   const tz = user.organization.timezone;
+  const canLog = can(user, "calls:log");
+  const browserCalling = browserCallingAvailable(user);
 
   const keep = { q: query.q, city: query.city, tag: query.tag, status: query.status !== "active" ? query.status : undefined, sort: query.sort !== "name" ? query.sort : undefined, dir: query.dir !== "asc" ? query.dir : undefined, cols: raw.cols, f: query.f };
   const active = [
@@ -91,7 +94,12 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       <PageHeader
         title={label}
         description="Search by name, phone (any format) or email. City filters use each customer’s current service addresses."
-        actions={can(user, "customers:write") ? <LinkButton href="/dashboard/customers/new"><Plus className="size-4" aria-hidden /> Add {user.organization.terminology.customer.toLowerCase()}</LinkButton> : null}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            {can(user, "customers:import") && can(user, "customers:write") ? <LinkButton href="/dashboard/customers/import" variant="secondary"><Upload className="size-4" aria-hidden /> Import</LinkButton> : null}
+            {can(user, "customers:write") ? <LinkButton href="/dashboard/customers/new"><Plus className="size-4" aria-hidden /> Add {user.organization.terminology.customer.toLowerCase()}</LinkButton> : null}
+          </div>
+        }
       />
       <Card>
         <form method="get" role="search" aria-label={`Filter ${label.toLowerCase()}`} className="flex flex-wrap items-end gap-3 border-b border-line p-4">
@@ -154,7 +162,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
                   </Link>
                   {c.archived ? <Badge tone="slate" className="ml-2">Archived</Badge> : null}
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted">
-                    <PhoneLink e164={c.phone} display={c.phoneDisplay} />
+                    <CallActions e164={c.phone} display={c.phoneDisplay} target={{ type: "customer", id: c.id, name: c.name }} canLog={canLog} browserCalling={browserCalling} compact />
                     {c.primaryCity ? <span>{c.primaryCity}</span> : null}
                   </div>
                 </li>
@@ -201,7 +209,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
                         </Link>
                         {c.archived ? <Badge tone="slate" className="ml-2">Archived</Badge> : null}
                       </td>
-                      {cols.includes("phone") ? <td className="px-3 py-3">{c.phone ? <PhoneLink e164={c.phone} display={c.phoneDisplay} /> : <span className="text-muted">—</span>}</td> : null}
+                      {cols.includes("phone") ? <td className="px-3 py-3">{c.phone ? <CallActions e164={c.phone} display={c.phoneDisplay} target={{ type: "customer", id: c.id, name: c.name }} canLog={canLog} browserCalling={browserCalling} compact /> : <span className="text-muted">—</span>}</td> : null}
                       {cols.includes("email") ? <td className="break-all px-3 py-3 text-muted">{c.email ?? "—"}</td> : null}
                       {cols.includes("city") ? <td className="px-3 py-3 text-muted">{c.primaryCity ?? "—"}</td> : null}
                       {cols.includes("tags") ? (

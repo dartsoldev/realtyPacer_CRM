@@ -5,7 +5,7 @@
  *   npm run dev:services      # then, in another terminal: npm run dev
  *
  * Use with .env.local:
- *   MONGODB_URI=mongodb://127.0.0.1:27027/realtypacer
+ *   MONGODB_URI=mongodb://127.0.0.1:27027/realtypacer?replicaSet=testset   (use the URI it prints)
  *   SMTP_HOST=127.0.0.1  SMTP_PORT=2525  SMTP_SECURE=false  EMAIL_FROM="RealtyPacer Dev <dev@localhost>"
  *
  * Emails are written to .dev-mail/*.eml (gitignored) and never leave this machine.
@@ -15,7 +15,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { SMTPServer } from "smtp-server";
 
 const MONGO_PORT = Number(process.env.DEV_MONGO_PORT ?? 27027);
@@ -25,8 +25,9 @@ const outDir = path.resolve(process.cwd(), ".dev-mail");
 const smtpOnly = process.argv.includes("--smtp-only");
 
 async function main() {
-  const mongo = smtpOnly ? null : await MongoMemoryServer.create({ instance: { port: MONGO_PORT, ip: "127.0.0.1" } });
-  if (mongo) console.log(`✔ MongoDB (in-memory) at ${mongo.getUri()}realtypacer`);
+  // Single-node replica set: bookings, payments and points use multi-document transactions.
+  const mongo = smtpOnly ? null : await MongoMemoryReplSet.create({ replSet: { count: 1, ip: "127.0.0.1" }, instanceOpts: [{ port: MONGO_PORT }] });
+  if (mongo) console.log(`✔ MongoDB (in-memory replica set) at ${mongo.getUri("realtypacer")}`);
 
   mkdirSync(outDir, { recursive: true });
   const smtp = new SMTPServer({

@@ -17,7 +17,9 @@ export function ok<T>(data: T, status = 200) {
   return NextResponse.json({ data }, { status, headers: NO_STORE });
 }
 
-export function errorResponse(err: unknown): NextResponse<ApiErrorBody> {
+type ErrorContext = { requestId?: string; method?: string; path?: string };
+
+export function errorResponse(err: unknown, ctx: ErrorContext = {}): NextResponse<ApiErrorBody> {
   if (err instanceof AppError) {
     const headers: Record<string, string> = { ...NO_STORE };
     if (err.code === "RATE_LIMITED" && typeof err.details?.retryAfterSeconds === "number") {
@@ -40,7 +42,7 @@ export function errorResponse(err: unknown): NextResponse<ApiErrorBody> {
     );
   }
   if (err instanceof ConfigError) {
-    logger.error("config.incomplete", { issues: err.issues });
+    logger.error("config.incomplete", { issues: err.issues, requestId: ctx.requestId, path: ctx.path });
     return NextResponse.json(
       {
         error: {
@@ -52,11 +54,12 @@ export function errorResponse(err: unknown): NextResponse<ApiErrorBody> {
       { status: 503, headers: NO_STORE },
     );
   }
-  const requestId = randomUUID();
-  logger.error("api.unhandled_error", { requestId, error: err instanceof Error ? err : String(err) });
+  const requestId = ctx.requestId ?? randomUUID();
+  // Stack traces stay in server logs (redacted); the client only gets a correlation id.
+  logger.error("api.unhandled_error", { requestId, method: ctx.method, path: ctx.path, error: err instanceof Error ? err : String(err), stack: err instanceof Error ? err.stack?.split(/\r?\n/).slice(0, 6).join(" | ") : undefined });
   return NextResponse.json(
     { error: { code: "INTERNAL_ERROR", message: "Something went wrong. Please try again.", requestId } },
-    { status: 500, headers: NO_STORE },
+    { status: 500, headers: { ...NO_STORE, "x-request-id": requestId } },
   );
 }
 
@@ -74,7 +77,10 @@ export function route<P = Record<string, string>>(
       if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) assertSameOrigin(req);
       return await handler(req, ctx);
     } catch (err) {
-      return errorResponse(err);
+      const requestId = req.headers.get("x-request-id") ?? undefined;
+      const res = errorResponse(err, { requestId, method: req.method, path: new URL(req.url).pathname.replace(/[a-f0-9]{24}/g, ":id") });
+      if (err instanceof AppError && err.status >= 500) logger.warn("api.service_unavailable", { requestId, code: err.code, path: new URL(req.url).pathname.replace(/[a-f0-9]{24}/g, ":id") });
+      return res;
     }
   };
 }
@@ -85,8 +91,8 @@ export async function parseBody<S extends z.ZodType>(req: Request, schema: S): P
 }
 
 /** Raw JSON body (bounded size) for services that validate with their own shared schemas. */
-export async function readBody(req: Request): Promise<unknown> {
-  return readJson(req);
+export async function readBody(req: Request, maxBytes?: number): Promise<unknown> {
+  return readJson(req, maxBytes);
 }
 
 export function parseQuery<S extends z.ZodType>(req: Request, schema: S): z.infer<S> {

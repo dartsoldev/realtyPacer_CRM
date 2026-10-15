@@ -48,9 +48,11 @@ export function assertSameOrigin(req: Request) {
 
 const MAX_BODY_BYTES = 32 * 1024;
 
-export async function readJson(req: Request): Promise<unknown> {
+export async function readJson(req: Request, maxBytes = MAX_BODY_BYTES): Promise<unknown> {
+  const declared = Number(req.headers.get("content-length") ?? 0);
+  if (declared > maxBytes) throw Errors.validation("Request body is too large.");
   const text = await req.text();
-  if (text.length > MAX_BODY_BYTES) throw Errors.validation("Request body is too large.");
+  if (text.length > maxBytes) throw Errors.validation("Request body is too large.");
   if (!text) return {};
   try {
     return JSON.parse(text);

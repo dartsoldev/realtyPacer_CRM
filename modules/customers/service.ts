@@ -156,7 +156,8 @@ export async function checkDuplicates(user: CurrentUser, raw: unknown) {
   return { matches: await findPossibleDuplicates(new Types.ObjectId(user.organizationId), f) };
 }
 
-export async function createCustomer(user: CurrentUser, raw: unknown) {
+/** `opts.importRef` makes creation idempotent for CSV imports (same ref → same customer). */
+export async function createCustomer(user: CurrentUser, raw: unknown, opts: { importRef?: string } = {}) {
   if (!user.permissions.has("customers:write")) throw Errors.forbidden();
   const input = createCustomerSchema.parse(raw);
   await connectDb();
@@ -170,8 +171,12 @@ export async function createCustomer(user: CurrentUser, raw: unknown) {
     }
   }
   // Customers are not users: no account or invitation is ever created here.
+  if (opts.importRef) {
+    const prior = await Customer.findOne({ organizationId: orgId, importRef: opts.importRef }).lean();
+    if (prior) return toCustomerDTO(prior);
+  }
   const id = await withTransaction(async (session) => {
-    const [customer] = await Customer.create([{ organizationId: orgId, ...fields, customFields, createdBy: user.id }], { session });
+    const [customer] = await Customer.create([{ organizationId: orgId, ...fields, customFields, createdBy: user.id, importRef: opts.importRef ?? null }], { session });
     if (input.primaryAddress) {
       await ServiceAddress.create(
         [{ organizationId: orgId, customerId: customer!._id, ...addressFieldsFromInput(input.primaryAddress), isPrimary: true }],

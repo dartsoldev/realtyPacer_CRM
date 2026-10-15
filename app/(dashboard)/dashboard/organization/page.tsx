@@ -6,6 +6,8 @@ import { requirePageUser } from "@/lib/auth/page-guard";
 import { getOrganizationSettings } from "@/modules/organization/service";
 import { OrganizationForm } from "./organization-form";
 import { TaxSettings } from "./tax-settings";
+import { NotificationSettings } from "./notification-settings";
+import { getConfigStatus } from "@/lib/env";
 
 export const metadata: Metadata = { title: "Organization" };
 
@@ -22,6 +24,7 @@ export default async function OrganizationPage() {
         canEditProtected={can(user, "organization:update_protected")}
       />
       <TaxSettings tax={settings.tax} canEdit={can(user, "organization:update_protected")} />
+      <NotificationSettings value={settings.notifications.customerBookingEmails} canEdit={can(user, "organization:update")} emailConfigured={getConfigStatus("smtp").ok} />
     </>
   );
 }

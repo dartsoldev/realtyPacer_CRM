@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Briefcase, Search } from "lucide-react";
-import { PhoneLink } from "@/components/ops/contact";
+import { CallActions } from "@/components/calls/call-actions";
+import { browserCallingAvailable } from "@/modules/calls/service";
 import { ActiveBadge } from "@/components/ops/status";
 import { AccessDenied } from "@/components/shell/access";
 import { plural } from "@/components/shell/nav-config";
@@ -65,7 +66,7 @@ export default async function CleanersPage({ searchParams }: { searchParams: Pro
                     {c.linkedUser ? <Badge tone="teal">Can sign in</Badge> : null}
                   </div>
                   <div className="flex flex-wrap gap-x-4 text-muted">
-                    <PhoneLink e164={c.phone} display={c.phoneDisplay} />
+                    <CallActions e164={c.phone} display={c.phoneDisplay} target={{ type: "cleaner", id: c.id, name: c.name }} canLog={can(user, "calls:log")} browserCalling={browserCallingAvailable(user)} compact />
                     {c.serviceAreas.length ? <span>Areas: {c.serviceAreas.join(", ")}</span> : null}
                   </div>
                 </div>

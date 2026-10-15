@@ -71,7 +71,7 @@ export const ACTIVITY_TYPES = [
 ] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 
-export const CALL_OUTCOMES = ["answered", "no_answer", "voicemail", "callback_requested", "wrong_number"] as const;
+export const CALL_OUTCOMES = ["answered", "no_answer", "voicemail", "callback_requested", "wrong_number", "busy", "failed", "canceled"] as const;
 export type CallOutcome = (typeof CALL_OUTCOMES)[number];
 export const CALL_OUTCOME_LABELS: Record<CallOutcome, string> = {
   answered: "Answered",
@@ -79,7 +79,17 @@ export const CALL_OUTCOME_LABELS: Record<CallOutcome, string> = {
   voicemail: "Left voicemail",
   callback_requested: "Callback requested",
   wrong_number: "Wrong number",
+  busy: "Busy",
+  failed: "Failed",
+  canceled: "Canceled",
 };
+/** Outcomes a person can record by hand (the rest come from the telephony provider). */
+export const MANUAL_CALL_OUTCOMES = ["answered", "no_answer", "voicemail", "callback_requested", "wrong_number", "busy"] as const;
+export const CALL_DIRECTIONS = ["outbound", "inbound"] as const;
+export type CallDirection = (typeof CALL_DIRECTIONS)[number];
+/** Provider-reported progress of a browser call. "logged" = entered by hand. */
+export const CALL_STATUSES = ["logged", "initiated", "ringing", "in_progress", "completed", "busy", "no_answer", "failed", "canceled"] as const;
+export type CallStatus = (typeof CALL_STATUSES)[number];
 
 /** Service-item rules (see PROJECT_STATE.md → "Date, count and amount definitions"). */
 export const MAX_LINE_QUANTITY = 1000;
